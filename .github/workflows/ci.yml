@@ -17,7 +17,7 @@ env:
   AWS_REGION: ap-south-1
   EKS_CLUSTER: eks-mumbai
   K8S_NAMESPACE: demo
-  ECR_REPO: ai-interview-dev-platform
+  ECR_REPO: prod-eks-frontend
 
 jobs:
   app:
