@@ -1,0 +1,1116 @@
+<title>ALB Ingress Runbook</title>
+
+<style>
+  /* ============================================================
+     Tokens — light is the base. Every colour used anywhere on the
+     page is declared here first, so no component depends on a
+     media query having matched.
+     ============================================================ */
+  :root {
+    --ground:      #F6F7F5;
+    --surface:     #FFFFFF;
+    --surface-2:   #ECEFEB;
+    --ink:         #131A1D;
+    --ink-muted:   #56646A;
+    --rule:        #D5DBD6;
+    --rule-strong: #B6C0B9;
+
+    --accent:      #0B5754;
+    --accent-ink:  #073C3A;
+    --accent-soft: #E1EDEA;
+
+    --warn:        #8A4A11;
+    --warn-soft:   #F7EDE0;
+    --warn-rule:   #E0C8A5;
+
+    --ok:          #2E6340;
+    --ok-soft:     #E5EFE7;
+    --ok-rule:     #B9D2BF;
+
+    /* The terminal is dark in both themes. That is the point of it. */
+    --code-bg:     #111A1D;
+    --code-ink:    #DFE7E4;
+    --code-dim:    #7C8D8B;
+    --code-accent: #6FC7BE;
+    --code-rule:   #26343A;
+
+    --shadow: 0 1px 2px rgba(19,26,29,.05), 0 8px 24px -12px rgba(19,26,29,.18);
+
+    --font-display: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --font-body: Charter, "Bitstream Charter", "Sitka Text", Cambria, Georgia, serif;
+    --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+    --measure: 40rem;
+    --gutter: 3.25rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:      #0F1518;
+      --surface:     #151D21;
+      --surface-2:   #1A242A;
+      --ink:         #E2E8E5;
+      --ink-muted:   #8C9B99;
+      --rule:        #253138;
+      --rule-strong: #35454C;
+
+      --accent:      #56BFB5;
+      --accent-ink:  #8FD9D1;
+      --accent-soft: #12302E;
+
+      --warn:        #D9A05B;
+      --warn-soft:   #2B2117;
+      --warn-rule:   #4A3A24;
+
+      --ok:          #7CBE8A;
+      --ok-soft:     #15281A;
+      --ok-rule:     #2C462F;
+
+      --code-bg:     #080D10;
+      --code-ink:    #DFE7E4;
+      --code-dim:    #6D7E7C;
+      --code-accent: #6FC7BE;
+      --code-rule:   #1D2A30;
+
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:      #0F1518;
+    --surface:     #151D21;
+    --surface-2:   #1A242A;
+    --ink:         #E2E8E5;
+    --ink-muted:   #8C9B99;
+    --rule:        #253138;
+    --rule-strong: #35454C;
+
+    --accent:      #56BFB5;
+    --accent-ink:  #8FD9D1;
+    --accent-soft: #12302E;
+
+    --warn:        #D9A05B;
+    --warn-soft:   #2B2117;
+    --warn-rule:   #4A3A24;
+
+    --ok:          #7CBE8A;
+    --ok-soft:     #15281A;
+    --ok-rule:     #2C462F;
+
+    --code-bg:     #080D10;
+    --code-ink:    #DFE7E4;
+    --code-dim:    #6D7E7C;
+    --code-accent: #6FC7BE;
+    --code-rule:   #1D2A30;
+
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+  }
+
+  /* ============================================================
+     Base
+     ============================================================ */
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 54rem;
+    margin: 0 auto;
+    padding: 3.5rem 1.5rem 6rem;
+  }
+
+  p { max-width: var(--measure); }
+
+  a {
+    color: var(--accent);
+    text-underline-offset: 2px;
+    text-decoration-thickness: 1px;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  code {
+    font-family: var(--font-display);
+    font-size: .87em;
+  }
+
+  /* inline code inside prose */
+  p code, li code, td code, dd code, .note code {
+    background: var(--surface-2);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: .06em .34em;
+    white-space: nowrap;
+  }
+
+  /* ============================================================
+     Masthead
+     ============================================================ */
+  .masthead {
+    border-bottom: 2px solid var(--ink);
+    padding-bottom: 1.75rem;
+    margin-bottom: 2.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: .9rem;
+  }
+
+  .eyebrow {
+    font-family: var(--font-display);
+    font-size: .72rem;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem 1rem;
+  }
+
+  h1 {
+    font-family: var(--font-display);
+    font-size: clamp(1.9rem, 5vw, 2.9rem);
+    line-height: 1.06;
+    letter-spacing: -.02em;
+    font-weight: 600;
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  .standfirst {
+    font-size: 1.1rem;
+    color: var(--ink-muted);
+    max-width: var(--measure);
+  }
+
+  /* ============================================================
+     Callout blocks
+     ============================================================ */
+  .note {
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--rule-strong);
+    background: var(--surface);
+    padding: 1rem 1.15rem;
+    border-radius: 3px;
+    margin: 1.5rem 0;
+    font-size: .95rem;
+  }
+  .note > :first-child { margin-top: 0; }
+  .note > :last-child  { margin-bottom: 0; }
+  .note p { max-width: none; }
+
+  .note-label {
+    font-family: var(--font-ui);
+    font-size: .68rem;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: .4rem;
+  }
+
+  .note.trap        { border-left-color: var(--warn); background: var(--warn-soft); border-color: var(--warn-rule); }
+  .note.trap .note-label { color: var(--warn); }
+
+  .note.check       { border-left-color: var(--ok); background: var(--ok-soft); border-color: var(--ok-rule); }
+  .note.check .note-label { color: var(--ok); }
+
+  .note.why         { border-left-color: var(--accent); background: var(--accent-soft); border-color: var(--rule); }
+  .note.why .note-label { color: var(--accent); }
+
+  /* ============================================================
+     Steps — numbered because this IS a sequence. Doing step 5
+     before step 2 produces an ALB that never appears.
+     ============================================================ */
+  .step {
+    display: grid;
+    grid-template-columns: var(--gutter) minmax(0, 1fr);
+    gap: 0 1.5rem;
+    padding-top: 3rem;
+    margin-top: 3rem;
+    border-top: 1px solid var(--rule);
+  }
+
+  .step-num {
+    font-family: var(--font-display);
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--accent);
+    border: 1px solid var(--rule-strong);
+    border-radius: 3px;
+    height: 2.6rem;
+    display: grid;
+    place-items: center;
+    background: var(--surface);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .step-body { min-width: 0; }
+  .step-body > :first-child { margin-top: 0; }
+
+  .step h2 {
+    font-family: var(--font-display);
+    font-size: 1.35rem;
+    line-height: 1.25;
+    font-weight: 600;
+    letter-spacing: -.01em;
+    margin: 0 0 .3rem;
+    text-wrap: balance;
+  }
+
+  .step-kicker {
+    font-family: var(--font-ui);
+    font-size: .74rem;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    margin: 0 0 1.1rem;
+  }
+
+  h3 {
+    font-family: var(--font-ui);
+    font-size: .8rem;
+    font-weight: 700;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    margin: 2rem 0 .6rem;
+  }
+
+  /* ============================================================
+     Terminal blocks
+     ============================================================ */
+  .term {
+    background: var(--code-bg);
+    color: var(--code-ink);
+    border: 1px solid var(--code-rule);
+    border-radius: 4px;
+    margin: 1rem 0 1.5rem;
+    overflow: hidden;
+  }
+
+  .term-bar {
+    font-family: var(--font-ui);
+    font-size: .68rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--code-dim);
+    padding: .5rem .9rem;
+    border-bottom: 1px solid var(--code-rule);
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .term pre {
+    margin: 0;
+    padding: .95rem;
+    overflow-x: auto;
+    font-family: var(--font-display);
+    font-size: .82rem;
+    line-height: 1.65;
+    tab-size: 2;
+  }
+
+  .term .c { color: var(--code-dim); }        /* comment */
+  .term .k { color: var(--code-accent); }     /* command name / key token */
+  .term .o { color: var(--code-ink); opacity: .55; }
+
+  /* ============================================================
+     Tables
+     ============================================================ */
+  .table-wrap { overflow-x: auto; margin: 1.25rem 0 1.75rem; }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: .9rem;
+    font-family: var(--font-ui);
+  }
+
+  th {
+    text-align: left;
+    font-size: .7rem;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    border-bottom: 1px solid var(--rule-strong);
+    padding: 0 .8rem .5rem 0;
+    white-space: nowrap;
+  }
+
+  td {
+    border-bottom: 1px solid var(--rule);
+    padding: .65rem .8rem .65rem 0;
+    vertical-align: top;
+  }
+
+  td:last-child, th:last-child { padding-right: 0; }
+
+  /* ============================================================
+     Chain diagram — how the four strings connect
+     ============================================================ */
+  .chain {
+    display: grid;
+    gap: .5rem;
+    margin: 1.5rem 0;
+  }
+
+  .chain-row {
+    display: grid;
+    grid-template-columns: 8.5rem minmax(0, 1fr);
+    gap: .9rem;
+    align-items: start;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: .7rem .9rem;
+  }
+
+  .chain-who {
+    font-family: var(--font-ui);
+    font-size: .7rem;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    padding-top: .1rem;
+  }
+
+  .chain-what {
+    font-family: var(--font-display);
+    font-size: .78rem;
+    line-height: 1.55;
+    color: var(--ink);
+    word-break: break-word;
+  }
+
+  .chain-link {
+    font-family: var(--font-display);
+    font-size: .8rem;
+    color: var(--ink-muted);
+    padding-left: 1rem;
+  }
+
+  /* ============================================================
+     Checklist
+     ============================================================ */
+  ul.plain { list-style: none; padding: 0; margin: 1rem 0; display: grid; gap: .55rem; }
+  ul.plain li {
+    display: grid;
+    grid-template-columns: 1.4rem minmax(0, 1fr);
+    gap: .5rem;
+    max-width: var(--measure);
+    font-size: .97rem;
+  }
+  ul.plain .box {
+    font-family: var(--font-display);
+    color: var(--accent);
+    font-size: .95rem;
+  }
+
+  ol.tight { padding-left: 1.2rem; }
+  ol.tight li, ul.bulleted li { margin-bottom: .45rem; max-width: var(--measure); }
+
+  hr.rule { border: 0; border-top: 2px solid var(--ink); margin: 4rem 0 0; }
+
+  .end {
+    font-family: var(--font-display);
+    font-size: .72rem;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    padding-top: 1.25rem;
+  }
+
+  @media (max-width: 34rem) {
+    :root { --gutter: 2.2rem; }
+    .page { padding: 2.25rem 1rem 4rem; }
+    .step { gap: 0 1rem; }
+    .step-num { height: 2.2rem; font-size: .9rem; }
+    .chain-row { grid-template-columns: 1fr; gap: .35rem; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <div class="eyebrow">
+      <span>Amazon EKS</span>
+      <span>AWS Load Balancer Controller</span>
+      <span>~25 minutes</span>
+    </div>
+    <h1>ALB Ingress Runbook</h1>
+    <p class="standfirst">
+      Your app is running in the cluster but nobody outside can reach it. These seven steps put an
+      Application Load Balancer in front of it and give you a public URL. Every command is meant to be
+      copied as-is, and every step tells you how to check it worked before you move on.
+    </p>
+  </header>
+
+  <h3>Before you start</h3>
+  <ul class="plain">
+    <li><span class="box">□</span><span>An EKS cluster that is <code>ACTIVE</code>, with nodes in <code>Ready</code> state.</span></li>
+    <li><span class="box">□</span><span><code>kubectl get nodes</code> works from your terminal.</span></li>
+    <li><span class="box">□</span><span>AWS CLI v2, configured and pointing at the right account.</span></li>
+    <li><span class="box">□</span><span><code>helm</code> and <code>eksctl</code> installed.</span></li>
+    <li><span class="box">□</span><span>Your app already deployed &mdash; a Deployment <em>and</em> a Service. A plain <code>ClusterIP</code> Service is fine; the ALB does not need <code>NodePort</code> or <code>LoadBalancer</code>.</span></li>
+  </ul>
+
+  <div class="note why">
+    <span class="note-label">Read this first</span>
+    <p>
+      Steps 1&ndash;5 are done <strong>once per cluster</strong>. Step 6 is done once per application.
+      Nothing here is repeated on every deploy.
+    </p>
+    <p>
+      The order matters more than usual. Doing step 5 before step 2 gives you a controller that starts
+      perfectly, reports no errors, and never creates a load balancer. Almost every failure in this
+      process is silent &mdash; that is why each step ends with a check.
+    </p>
+  </div>
+
+  <!-- ===================================================== 0 -->
+  <section class="step">
+    <div class="step-num">0</div>
+    <div class="step-body">
+      <h2>Set your variables</h2>
+      <p class="step-kicker">Everything below reuses these</p>
+
+      <p>
+        Type these four values once. Every later command reads them, so a typo fails here &mdash; loudly and
+        immediately &mdash; instead of halfway through step 4, where a mistyped cluster name produces an IAM
+        role that looks correct and silently never works.
+      </p>
+
+      <div class="term">
+        <div class="term-bar"><span>terminal</span><span>bash</span></div>
+<pre><span class="c"># Change these two to match your setup</span>
+<span class="k">export</span> REGION=ap-south-1
+<span class="k">export</span> CLUSTER=my-cluster
+<span class="k">export</span> NAMESPACE=demo
+
+<span class="c"># These two are derived - do not type them by hand</span>
+<span class="k">export</span> ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+<span class="k">export</span> VPC=$(aws eks describe-cluster --name "$CLUSTER" --region "$REGION" \
+  --query "cluster.resourcesVpcConfig.vpcId" --output text)
+
+<span class="k">echo</span> "account=$ACCOUNT  cluster=$CLUSTER  vpc=$VPC  region=$REGION"</pre>
+      </div>
+
+      <div class="note check">
+        <span class="note-label">Check</span>
+        <p>
+          The <code>echo</code> prints a real account id and a <code>vpc-…</code> id. If <code>vpc=</code> is
+          empty, the cluster name is wrong &mdash; run <code>aws eks list-clusters --region "$REGION"</code> and
+          use exactly what it prints.
+        </p>
+      </div>
+
+      <div class="note trap">
+        <span class="note-label">Trap</span>
+        <p>
+          These variables live in <em>this</em> terminal only. Close it, reboot, or open a second tab and they
+          are gone &mdash; and the next command silently runs with an empty value. If you come back later, run
+          this block again before anything else.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================== 1 -->
+  <section class="step">
+    <div class="step-num">1</div>
+    <div class="step-body">
+      <h2>Register the cluster's OIDC provider</h2>
+      <p class="step-kicker">So pods can hold an AWS identity</p>
+
+      <p>
+        The controller you are about to install is a pod, and it has to call AWS APIs to build a load
+        balancer. It gets permission through <strong>IRSA</strong> &mdash; IAM Roles for Service Accounts &mdash;
+        which needs your cluster registered in IAM as an identity provider.
+      </p>
+      <p>
+        <strong>Creating a cluster does not do this.</strong> The cluster has an OIDC issuer URL from day one,
+        but IAM has never heard of it until you say so. This is the single most common reason "the controller
+        starts but nothing happens".
+      </p>
+
+      <div class="term">
+        <div class="term-bar"><span>terminal</span><span>check first</span></div>
+<pre><span class="c"># What the cluster says its issuer is</span>
+aws eks describe-cluster --name "$CLUSTER" --region "$REGION" \
+  --query "cluster.identity.oidc.issuer" --output text
+
+<span class="c"># Is that URL registered in IAM?</span>
+aws iam list-open-id-connect-providers</pre>
+      </div>
+
+      <p>If the issuer is not in that list, register it:</p>
+
+      <div class="term">
+        <div class="term-bar"><span>terminal</span><span>only if missing</span></div>
+<pre>eksctl utils associate-iam-oidc-provider \
+  --cluster "$CLUSTER" --region "$REGION" --approve</pre>
+      </div>
+
+      <div class="note check">
+        <span class="note-label">Check</span>
+        <p>
+          Re-run <code>list-open-id-connect-providers</code>. One ARN must end with the same string the issuer
+          URL ends with, minus the <code>https://</code>:
+        </p>
+        <div class="term" style="margin-bottom:0">
+<pre><span class="c">issuer  </span>https://oidc.eks.ap-south-1.amazonaws.com/id/FDE3CE4E4283…
+<span class="c">arn     </span>arn:aws:iam::123456789012:oidc-provider/oidc.eks.ap-south-1.amazonaws.com/id/FDE3CE4E4283…</pre>
+        </div>
+      </div>
+
+      <div class="note why">
+        <span class="note-label">Worth knowing</span>
+        <p>
+          An account can hold several OIDC providers, each for a different issuer. If you also use GitHub
+          Actions with OIDC, you will see <code>token.actions.githubusercontent.com</code> in that same list.
+          Same mechanism, different issuer &mdash; one is for pods, one is for CI jobs.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================== 2 -->
+  <section class="step">
+    <div class="step-num">2</div>
+    <div class="step-body">
+      <h2>Tag your subnets</h2>
+      <p class="step-kicker">The controller finds subnets by tag, not by asking you</p>
+
+      <p>
+        You never tell the controller which subnets to put the load balancer in. It <em>discovers</em> them by
+        reading AWS resource tags. No tags means it finds nothing, creates nothing, and reports nothing.
+      </p>
+
+      <h3>First: which subnets are really public?</h3>
+
+      <p>
+        A subnet is public if its route table has a route to an <strong>Internet Gateway</strong>. Not because
+        it is named "public", and not because <code>MapPublicIpOnLaunch</code> is true &mdash; that flag only
+        controls whether EC2 instances get an auto-assigned public IP, and an ALB brings its own. Ask AWS
+        which is which:
+      </p>
+
+      <div class="term">
+        <div class="term-bar"><span>terminal</span><span>discover</span></div>
+<pre><span class="c"># Subnets routed through an Internet Gateway = public</span>
+aws ec2 describe-route-tables --region "$REGION" \
+  --filters "Name=vpc-id,Values=$VPC" "Name=route.gateway-id,Values=igw-*" \
+  --query "RouteTables[].Associations[].SubnetId" --output text
+
+<span class="c"># Subnets routed through a NAT Gateway = private</span>
+aws ec2 describe-route-tables --region "$REGION" \
+  --filters "Name=vpc-id,Values=$VPC" "Name=route.nat-gateway-id,Values=nat-*" \
+  --query "RouteTables[].Associations[].SubnetId" --output text</pre>
+      </div>
+
+      <h3>Then: tag them</h3>
+
+      <div class="term">
+        <div class="term-bar"><span>terminal</span><span>paste your own subnet ids</span></div>
+<pre><span class="k">export</span> PUB1=subnet-aaaaaaaaaaaaaaaaa
+<span class="k">export</span> PUB2=subnet-bbbbbbbbbbbbbbbbb
+<span class="k">export</span> PVT1=subnet-ccccccccccccccccc
+<span class="k">export</span> PVT2=subnet-ddddddddddddddddd
+
+<span class="c"># Public -> internet-facing load balancers</span>
+aws ec2 create-tags --region "$REGION" --resources $PUB1 $PUB2 \
+  --tags Key=kubernetes.io/role/elb,Value=1
+
+<span class="c"># Private -> internal load balancers. Not needed today, but tag it now
+# so subnet roles are one lesson instead of two.</span>
+aws ec2 create-tags --region "$REGION" --resources $PVT1 $PVT2 \
+  --tags Key=kubernetes.io/role/internal-elb,Value=1</pre>
+      </div>
+
+      <div class="note check">
+        <span class="note-label">Check</span>
+        <div class="term" style="margin-bottom:.75rem">
+<pre>aws ec2 describe-subnets --region "$REGION" \
+  --subnet-ids $PUB1 $PUB2 $PVT1 $PVT2 \
+  --query "Subnets[].{Subnet:SubnetId,AZ:AvailabilityZone,\
+elb:Tags[?Key=='kubernetes.io/role/elb']|[0].Value,\
+internal:Tags[?Key=='kubernetes.io/role/internal-elb']|[0].Value}" \
+  --output table</pre>
+        </div>
+        <p>
+          You need <strong>two subnets with <code>elb: 1</code>, in two different Availability Zones</strong>.
+          An ALB is a regional service and refuses to be created in a single AZ &mdash; one tagged subnet is not
+          enough, no matter how correct it looks.
+        </p>
+      </div>
+
+      <div class="note trap">
+        <span class="note-label">Trap</span>
+        <p>
+          There is a third tag, <code>kubernetes.io/cluster/&lt;cluster-name&gt;</code>. You do <strong>not</strong>
+          need it when one cluster owns the VPC &mdash; and if you add it with the wrong cluster name, that subnet
+          is <em>excluded</em> from discovery. Leave it off unless you run two clusters in one VPC.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================== 3 -->
+  <section class="step">
+    <div class="step-num">3</div>
+    <div class="step-body">
+      <h2>Create the IAM policy</h2>
+      <p class="step-kicker">What the controller is allowed to do</p>
+
+      <p>
+        The controller calls EC2, ELB and ACM APIs on your behalf. AWS publishes the exact policy it needs
+        &mdash; download it, do not hand-write it. Pin it to the same version as the chart you are about to
+        install, so the policy and the code agree about which API calls exist.
+      </p>
+
+      <div class="term">
+        <div class="term-bar"><span>terminal</span><span>find the version</span></div>
+<pre>helm repo add eks https://aws.github.io/eks-charts
+helm repo update
+helm search repo eks/aws-load-balancer-controller --versions | head -3</pre>
+      </div>
+
+      <p>Read the <code>APP VERSION</code> column, then:</p>
+
+      <div class="term">
+        <div class="term-bar"><span>terminal</span><span>create the policy</span></div>
+<pre><span class="k">export</span> LBC_VERSION=v3.5.0     <span class="c"># <- from the APP VERSION column</span>
+
+curl -sL -o alb-iam-policy.json \
+  "https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/${LBC_VERSION}/docs/install/iam_policy.json"
+
+head -3 alb-iam-policy.json
+
+aws iam create-policy \
+  --policy-name AWSLoadBalancerControllerIAMPolicy \
+  --policy-document file://alb-iam-policy.json</pre>
+      </div>
+
+      <div class="note check">
+        <span class="note-label">Check</span>
+        <p>
+          <code>head -3</code> must print JSON starting with <code>"Version": "2012-10-17"</code>. The command
+          then prints the new policy's ARN &mdash; note it, step 4 needs it.
+        </p>
+      </div>
+
+      <div class="note trap">
+        <span class="note-label">Trap</span>
+        <p>
+          <code>curl -sL</code> is silent. A wrong version tag fetches GitHub's 404 <em>web page</em> and saves
+          it as <code>alb-iam-policy.json</code>. <code>create-policy</code> then fails complaining about a
+          malformed document and says nothing about the URL. That is what the <code>head -3</code> is for.
+        </p>
+        <p>
+          Already exists from another cluster? That is fine &mdash; this policy is account-wide and shared.
+          Skip the create and reuse the ARN.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================== 4 -->
+  <section class="step">
+    <div class="step-num">4</div>
+    <div class="step-body">
+      <h2>Create the role and ServiceAccount</h2>
+      <p class="step-kicker">The IRSA link — one command, three objects</p>
+
+      <div class="term">
+        <div class="term-bar"><span>terminal</span><span>eksctl</span></div>
+<pre>eksctl create iamserviceaccount \
+  --cluster "$CLUSTER" \
+  --region "$REGION" \
+  --namespace kube-system \
+  --name aws-load-balancer-controller \
+  --attach-policy-arn "arn:aws:iam::${ACCOUNT}:policy/AWSLoadBalancerControllerIAMPolicy" \
+  --override-existing-serviceaccounts \
+  --approve</pre>
+      </div>
+
+      <h3>What that one command created</h3>
+
+      <div class="chain">
+        <div class="chain-row">
+          <div class="chain-who">IAM role</div>
+          <div class="chain-what">eksctl-&lt;cluster&gt;-addon-iamserviceaccount-…</div>
+        </div>
+        <div class="chain-link">├─ <strong>trust</strong> policy &mdash; <em>who</em> may become this role</div>
+        <div class="chain-row">
+          <div class="chain-who">Condition</div>
+          <div class="chain-what">sub = system:serviceaccount:kube-system:aws-load-balancer-controller</div>
+        </div>
+        <div class="chain-link">├─ <strong>permission</strong> policy &mdash; <em>what</em> it may do</div>
+        <div class="chain-row">
+          <div class="chain-who">Attached</div>
+          <div class="chain-what">AWSLoadBalancerControllerIAMPolicy</div>
+        </div>
+        <div class="chain-link">└─ and in Kubernetes:</div>
+        <div class="chain-row">
+          <div class="chain-who">ServiceAccount</div>
+          <div class="chain-what">kube-system/aws-load-balancer-controller<br>annotation: eks.amazonaws.com/role-arn</div>
+        </div>
+      </div>
+
+      <div class="note why">
+        <span class="note-label">The idea in one line</span>
+        <p>
+          A role has <strong>two</strong> policies and beginners conflate them constantly. The
+          <em>trust</em> policy answers <em>who can become this role</em>. The <em>permission</em> policy
+          answers <em>what the role can do</em>. IRSA is entirely about the first one.
+        </p>
+        <p>
+          Nothing is stored anywhere. The pod presents a token signed by the cluster, AWS verifies the
+          signature against the OIDC provider from step 1, checks the service account name against the trust
+          policy, and hands back temporary credentials. No access key exists at any point.
+        </p>
+      </div>
+
+      <div class="note check">
+        <span class="note-label">Check</span>
+        <div class="term" style="margin-bottom:.75rem">
+<pre>kubectl get sa aws-load-balancer-controller -n kube-system \
+  -o jsonpath='{.metadata.annotations.eks\.amazonaws\.com/role-arn}{"\n"}'</pre>
+        </div>
+        <p>
+          This must print a role ARN. <strong>If it prints a blank line, stop here.</strong> The service
+          account exists without its annotation, the controller will start and look healthy, and every single
+          AWS call it makes will fail &mdash; which reads like a bug in the controller.
+        </p>
+      </div>
+
+      <div class="note trap">
+        <span class="note-label">Trap</span>
+        <p>
+          <code>eksctl</code> builds this as a <strong>CloudFormation stack</strong>, not a bare role. Running the
+          command a second time errors instead of doing nothing, and deleting the cluster leaves the stack
+          behind. To check or clean up, look for a stack named
+          <code>eksctl-$CLUSTER-addon-iamserviceaccount-kube-system-aws-load-balancer-controller</code>.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================== 5 -->
+  <section class="step">
+    <div class="step-num">5</div>
+    <div class="step-body">
+      <h2>Install the controller</h2>
+      <p class="step-kicker">The pod that watches for Ingress objects</p>
+
+      <div class="term">
+        <div class="term-bar"><span>terminal</span><span>helm</span></div>
+<pre>helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
+  -n kube-system \
+  --set clusterName="$CLUSTER" \
+  --set region="$REGION" \
+  --set vpcId="$VPC" \
+  --set serviceAccount.create=false \
+  --set serviceAccount.name=aws-load-balancer-controller \
+  --wait</pre>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Flag</th><th>Why it is there</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>clusterName</code></td>
+              <td>Required. The controller tags every load balancer with it, and uses it to tell its own resources from someone else's.</td>
+            </tr>
+            <tr>
+              <td><code>region</code>, <code>vpcId</code></td>
+              <td>It can discover both from instance metadata, but that lookup fails slowly and confusingly. Passing them removes a startup dependency.</td>
+            </tr>
+            <tr>
+              <td><code>serviceAccount.create=false</code></td>
+              <td><strong>The one that matters.</strong> Step 4 already made the service account, with its annotation. Let Helm make a second one and you get a controller with no AWS identity.</td>
+            </tr>
+            <tr>
+              <td><code>--wait</code></td>
+              <td>Blocks until the pods are actually ready, so a failure surfaces here rather than in step 6.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note check">
+        <span class="note-label">Check</span>
+        <div class="term" style="margin-bottom:.75rem">
+<pre>kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-load-balancer-controller
+kubectl get ingressclass</pre>
+        </div>
+        <p>
+          Two pods <code>1/1 Running</code>, and an IngressClass named <code>alb</code>. Your Ingress refers to
+          that class by name in step 6 &mdash; if it is missing, nothing will ever pick the Ingress up.
+        </p>
+      </div>
+
+      <h3>See IRSA actually working</h3>
+
+      <div class="term">
+        <div class="term-bar"><span>terminal</span><span>the payoff</span></div>
+<pre>kubectl get pod -n kube-system -l app.kubernetes.io/name=aws-load-balancer-controller \
+  -o jsonpath='{range .items[0].spec.containers[0].env[*]}{.name}={.value}{"\n"}{end}'</pre>
+      </div>
+
+      <p>
+        You will see <code>AWS_ROLE_ARN</code> and <code>AWS_WEB_IDENTITY_TOKEN_FILE</code>. Nothing in the Helm
+        chart sets those. A webhook injected them into the pod because of the annotation you checked in step 4
+        &mdash; that is the whole mechanism, visible in one command.
+      </p>
+
+      <div class="note trap">
+        <span class="note-label">Two things that look broken and are not</span>
+        <p>
+          <code>kubectl exec … -- env</code> fails with <em>executable file not found</em>. The controller image
+          is <strong>distroless</strong> &mdash; no shell, no <code>env</code> binary. Read the pod spec instead,
+          as above.
+        </p>
+        <p>
+          The startup log says <em>Disabling ALBGatewayAPI: missing required CRDs</em>. Expected. That is the
+          optional Gateway API feature standing down; Ingress support is unaffected.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================== 6 -->
+  <section class="step">
+    <div class="step-num">6</div>
+    <div class="step-body">
+      <h2>Create the Ingress</h2>
+      <p class="step-kicker">One per application — the only step you repeat</p>
+
+      <p>
+        Everything so far was plumbing. This is the object that actually asks for a load balancer. Replace
+        <code>my-app</code> with your Service name and <code>80</code> with its port.
+      </p>
+
+      <div class="term">
+        <div class="term-bar"><span>ingress.yaml</span><span>kubernetes</span></div>
+<pre>apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: my-app
+  annotations:
+    <span class="c"># internet-facing = a public ALB. Use internal-facing for a private one,
+    # which is what the internal-elb subnet tag is for.</span>
+    alb.ingress.kubernetes.io/scheme: internet-facing
+
+    <span class="c"># ip, not instance: pods hold real VPC addresses, so the ALB reaches a
+    # pod directly instead of hopping through a NodePort on the host.</span>
+    alb.ingress.kubernetes.io/target-type: ip
+
+    <span class="c"># The path the ALB polls to decide a pod is healthy. Point it at a
+    # cheap endpoint, not at your homepage.</span>
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
+spec:
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: my-app
+                port:
+                  number: 80</pre>
+      </div>
+
+      <div class="term">
+        <div class="term-bar"><span>terminal</span><span>apply</span></div>
+<pre>kubectl apply -f ingress.yaml -n "$NAMESPACE"</pre>
+      </div>
+
+      <div class="note trap">
+        <span class="note-label">Trap</span>
+        <p>
+          <strong>Every Service named in the rules must already exist.</strong> The controller resolves all of
+          them when it builds its plan, and one missing Service fails the whole thing &mdash; you get
+          <em>no</em> load balancer at all, not a partial one. If you are adding a second service later, deploy
+          it first, then add its path.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================== 7 -->
+  <section class="step">
+    <div class="step-num">7</div>
+    <div class="step-body">
+      <h2>Wait for the address</h2>
+      <p class="step-kicker">Two waits, not one</p>
+
+      <div class="term">
+        <div class="term-bar"><span>terminal</span><span>watch</span></div>
+<pre>kubectl get ingress -n "$NAMESPACE" -w</pre>
+      </div>
+
+      <p>
+        The <code>ADDRESS</code> column is empty at first, then fills with a long
+        <code>…elb.amazonaws.com</code> hostname. That takes <strong>2&ndash;3 minutes</strong>.
+      </p>
+
+      <p>
+        Then wait again. The address appears before the load balancer serves anything &mdash; DNS has to
+        propagate and the targets have to pass a first health check. Give it another
+        <strong>1&ndash;2 minutes</strong>.
+      </p>
+
+      <div class="term">
+        <div class="term-bar"><span>terminal</span><span>confirm</span></div>
+<pre><span class="k">export</span> ADDR=$(kubectl get ingress my-app -n "$NAMESPACE" \
+  -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+
+<span class="k">echo</span> "http://$ADDR"
+
+curl -s -o /dev/null -w '%{http_code}\n' "http://$ADDR/"</pre>
+      </div>
+
+      <div class="note check">
+        <span class="note-label">Done when</span>
+        <p>
+          <code>curl</code> prints <code>200</code> and the URL opens in a browser. If it prints
+          <code>000</code>, the DNS name has not propagated yet &mdash; wait a minute and try again. If it
+          prints <code>503</code>, the ALB exists but no target is healthy: check your health check path.
+        </p>
+      </div>
+
+      <p>
+        While it is coming up, the controller's log is the only place that explains a failure. The Ingress
+        object itself stays silent:
+      </p>
+
+      <div class="term">
+        <div class="term-bar"><span>terminal</span><span>the real error is here</span></div>
+<pre>kubectl logs -n kube-system deploy/aws-load-balancer-controller -f --tail=20</pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================== troubleshooting -->
+  <section class="step">
+    <div class="step-num">?</div>
+    <div class="step-body">
+      <h2>When it does not work</h2>
+      <p class="step-kicker">Symptom to cause, in order of likelihood</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>What you see</th><th>What it actually is</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>ADDRESS</code> stays empty forever</td>
+              <td>Subnet tags. Redo step 2 &mdash; you need two <code>elb: 1</code> subnets in two different AZs.</td>
+            </tr>
+            <tr>
+              <td><code>failed calling webhook "vingress.elbv2.k8s.aws" … context deadline exceeded</code></td>
+              <td>The EKS control plane cannot reach the controller's webhook on port <strong>9443</strong>. Allow it on the cluster security group.</td>
+            </tr>
+            <tr>
+              <td>Controller logs show <code>AccessDenied</code> or <code>NoCredentialProviders</code></td>
+              <td>IRSA. The service account annotation is missing, or the trust policy names the wrong namespace or service account. Redo the step 4 check.</td>
+            </tr>
+            <tr>
+              <td>Controller logs show <code>couldn't auto-discover subnets</code></td>
+              <td>Step 2 again &mdash; but check the cluster tag too. A <code>kubernetes.io/cluster/&lt;name&gt;</code> tag naming a different cluster excludes the subnet.</td>
+            </tr>
+            <tr>
+              <td>ALB exists, returns <code>503</code></td>
+              <td>No healthy targets. The health check path returns something other than 200, or your pods are not ready. Check the target group in the EC2 console.</td>
+            </tr>
+            <tr>
+              <td>Ingress created but no ALB, no errors</td>
+              <td>A Service named in the rules does not exist, or <code>ingressClassName: alb</code> is missing or misspelled.</td>
+            </tr>
+            <tr>
+              <td>Everything worked yesterday, nothing today</td>
+              <td>Your shell variables are gone. Re-run step 0.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>The port 9443 fix, since it is the least guessable one:</p>
+
+      <div class="term">
+        <div class="term-bar"><span>terminal</span><span>webhook fix</span></div>
+<pre><span class="k">export</span> CLUSTER_SG=$(aws eks describe-cluster --name "$CLUSTER" --region "$REGION" \
+  --query "cluster.resourcesVpcConfig.clusterSecurityGroupId" --output text)
+
+aws ec2 authorize-security-group-ingress --region "$REGION" \
+  --group-id "$CLUSTER_SG" --protocol tcp --port 9443 --source-group "$CLUSTER_SG"</pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================== cleanup -->
+  <section class="step">
+    <div class="step-num">↺</div>
+    <div class="step-body">
+      <h2>Tearing it down</h2>
+      <p class="step-kicker">Order matters here too</p>
+
+      <div class="note trap">
+        <span class="note-label">Delete the Ingress first</span>
+        <p>
+          The load balancer is owned by the <em>controller</em>, not by AWS-side automation. Remove the
+          controller while an Ingress still exists and the ALB is orphaned: nothing left in the cluster knows
+          about it, and it keeps billing until somebody finds it in the EC2 console.
+        </p>
+      </div>
+
+      <div class="term">
+        <div class="term-bar"><span>terminal</span><span>in this order</span></div>
+<pre><span class="c"># 1. This is what actually deletes the load balancer</span>
+kubectl delete ingress my-app -n "$NAMESPACE"
+
+<span class="c"># 2. Wait until it is gone from AWS before continuing</span>
+aws elbv2 describe-load-balancers --region "$REGION" \
+  --query "LoadBalancers[].LoadBalancerName" --output text
+
+<span class="c"># 3. Now the controller</span>
+helm uninstall aws-load-balancer-controller -n kube-system
+
+<span class="c"># 4. And the CloudFormation stack behind the service account</span>
+eksctl delete iamserviceaccount --cluster "$CLUSTER" --region "$REGION" \
+  --namespace kube-system --name aws-load-balancer-controller</pre>
+      </div>
+
+      <p>
+        The IAM policy from step 3 is account-wide and shared. Leave it &mdash; it costs nothing and the next
+        cluster will want it.
+      </p>
+    </div>
+  </section>
+
+  <hr class="rule">
+  <p class="end">End of runbook · steps 1&ndash;5 once per cluster · step 6 once per app</p>
+
+</div>

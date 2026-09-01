@@ -1,0 +1,1066 @@
+<title>Ship It Yourself</title>
+
+<style>
+  :root {
+    --f-head: "Bahnschrift", "DIN Alternate", "Avenir Next Condensed", "Segoe UI", system-ui, sans-serif;
+    --f-body: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+    --f-mono: "Cascadia Mono", "Consolas", ui-monospace, "SF Mono", "Roboto Mono", monospace;
+
+    --ground: #F0F0EA;
+    --surface: #FFFFFF;
+    --surface-2: #E6E6DE;
+    --ink: #1A1A16;
+    --ink-2: #4C4C44;
+    --ink-3: #77776C;
+    --rule: #D6D6CB;
+    --accent: #7A5D00;
+    --mark: #F7DC5C;
+    --danger: #A3352B;
+    --danger-soft: #F7E3E0;
+    --ok: #2C6E49;
+    --ok-soft: #DDEDE3;
+    --warn: #94590F;
+    --warn-soft: #F8EBD6;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #14140E;
+      --surface: #1C1C15;
+      --surface-2: #26261D;
+      --ink: #EDEBE0;
+      --ink-2: #B0AE9F;
+      --ink-3: #82806F;
+      --rule: #333226;
+      --accent: #E8C84A;
+      --mark: #E8C84A;
+      --danger: #EE9086;
+      --danger-soft: #2F1B18;
+      --ok: #71C79A;
+      --ok-soft: #16291F;
+      --warn: #E0A45C;
+      --warn-soft: #2E2116;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #14140E;
+    --surface: #1C1C15;
+    --surface-2: #26261D;
+    --ink: #EDEBE0;
+    --ink-2: #B0AE9F;
+    --ink-3: #82806F;
+    --rule: #333226;
+    --accent: #E8C84A;
+    --mark: #E8C84A;
+    --danger: #EE9086;
+    --danger-soft: #2F1B18;
+    --ok: #71C79A;
+    --ok-soft: #16291F;
+    --warn: #E0A45C;
+    --warn-soft: #2E2116;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--f-body);
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3 { font-family: var(--f-head); font-weight: 600; line-height: 1.15; text-wrap: balance; margin: 0; }
+  a { color: var(--accent); text-underline-offset: 2px; }
+  a:focus-visible, summary:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+  code { font-family: var(--f-mono); font-size: 0.88em; }
+  p code, li code, td code { background: var(--surface-2); padding: 0.12em 0.34em; border-radius: 3px; color: var(--ink); }
+  .hl { background: linear-gradient(transparent 58%, var(--mark) 58%); padding: 0 0.1em; font-weight: 600; }
+
+  .masthead { background: var(--surface); border-bottom: 1px solid var(--rule); }
+  .inner { max-width: 900px; margin: 0 auto; padding: 0 1.5rem; }
+  .masthead .inner { padding-top: 3rem; padding-bottom: 2rem; display: flex; flex-direction: column; gap: 1rem; }
+  .masthead h1 { font-size: clamp(2.4rem, 7vw, 3.8rem); }
+  .kicker { font-family: var(--f-mono); font-size: 0.7rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); margin: 0; }
+  .lede { font-size: 1.1rem; color: var(--ink-2); max-width: 58ch; margin: 0; }
+  .badges { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .badge { font-family: var(--f-mono); font-size: 0.72rem; letter-spacing: 0.06em; border: 1px solid var(--rule); border-radius: 999px; padding: 0.3rem 0.8rem; background: var(--ground); color: var(--ink-2); }
+  .badge.money { border-color: var(--danger); color: var(--danger); background: var(--danger-soft); }
+
+  .progress { position: sticky; top: 0; z-index: 20; background: var(--surface); border-bottom: 1px solid var(--rule); }
+  .progress .inner { display: flex; align-items: center; gap: 1rem; padding-top: 0.6rem; padding-bottom: 0.6rem; }
+  .track { flex: 1; height: 8px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+  .track i { display: block; height: 100%; width: 0; background: var(--mark); transition: width 0.2s ease; }
+  #count { font-family: var(--f-mono); font-size: 0.8rem; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  #reset { font-family: var(--f-mono); font-size: 0.72rem; background: none; border: 1px solid var(--rule); color: var(--ink-3); border-radius: 3px; padding: 0.2rem 0.55rem; cursor: pointer; }
+  #reset:hover { color: var(--ink); border-color: var(--ink-3); }
+
+  main { max-width: 900px; margin: 0 auto; padding: 2.5rem 1.5rem 5rem; display: flex; flex-direction: column; gap: 3rem; }
+
+  .part { scroll-margin-top: 4rem; }
+  .parthead { display: flex; align-items: baseline; gap: 0.9rem; border-bottom: 3px solid var(--ink); padding-bottom: 0.5rem; flex-wrap: wrap; }
+  .parthead .pn { font-family: var(--f-mono); font-size: 0.78rem; font-weight: 700; letter-spacing: 0.1em; background: var(--mark); color: #1A1A16; padding: 0.15rem 0.5rem; border-radius: 3px; }
+  .parthead h2 { font-size: clamp(1.5rem, 3.5vw, 1.95rem); flex: 1; }
+  .parthead .time { font-family: var(--f-mono); font-size: 0.72rem; color: var(--ink-3); white-space: nowrap; }
+  .partnote { color: var(--ink-2); margin: 0.9rem 0 0; max-width: 66ch; }
+
+  .steps { list-style: none; margin: 1.4rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.7rem; }
+  .step { display: grid; grid-template-columns: 1.6rem minmax(0, 1fr); gap: 0.9rem; background: var(--surface); border: 1px solid var(--rule); border-radius: 5px; padding: 1rem 1.1rem; }
+  .step.done { background: var(--ground); }
+  .step.done .body > h3 { text-decoration: line-through; color: var(--ink-3); }
+  .tick { display: block; padding-top: 0.15rem; position: relative; }
+  .tick input { position: absolute; opacity: 0; width: 1.3rem; height: 1.3rem; margin: 0; cursor: pointer; }
+  .tick span { display: block; width: 1.3rem; height: 1.3rem; border: 2px solid var(--ink-3); border-radius: 4px; background: var(--surface); position: relative; cursor: pointer; }
+  .tick input:checked + span { background: var(--mark); border-color: var(--mark); }
+  .tick input:checked + span::after { content: ""; position: absolute; left: 0.32rem; top: 0.06rem; width: 0.32rem; height: 0.66rem; border: solid #1A1A16; border-width: 0 2.5px 2.5px 0; transform: rotate(42deg); }
+  .tick input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .body > * { max-width: 66ch; }
+  .body > pre { max-width: none; }
+  .body h3 { font-size: 1.08rem; margin: 0 0 0.2rem; }
+  .why { margin: 0; color: var(--ink-2); font-size: 0.94rem; }
+  .expect { margin: 0.7rem 0 0; font-size: 0.9rem; color: var(--ok); background: var(--ok-soft); border-radius: 4px; padding: 0.45rem 0.7rem; }
+  .expect b { font-family: var(--f-mono); font-size: 0.76rem; letter-spacing: 0.06em; text-transform: uppercase; }
+  .stop { margin: 0.7rem 0 0; font-size: 0.9rem; color: var(--danger); background: var(--danger-soft); border-radius: 4px; padding: 0.45rem 0.7rem; }
+  .stop b { font-family: var(--f-mono); font-size: 0.76rem; letter-spacing: 0.06em; text-transform: uppercase; }
+
+  pre { margin: 0.8rem 0 0; background: #10100B; border: 1px solid #2E2D22; border-radius: 4px; padding: 0.85rem 1rem; overflow-x: auto; color: #E9E6D8; font-family: var(--f-mono); font-size: 0.8rem; line-height: 1.62; }
+  pre .c { color: #8B8874; }
+  pre .k { color: #F0D25E; }
+  pre .x { color: #EE9086; }
+
+  .note { border-left: 3px solid var(--accent); background: var(--surface); padding: 0.85rem 1rem; border-radius: 0 4px 4px 0; margin: 1.3rem 0; }
+  .note p { margin: 0.4rem 0 0; font-size: 0.94rem; }
+  .note .tag { font-family: var(--f-mono); font-size: 0.68rem; letter-spacing: 0.13em; text-transform: uppercase; color: var(--accent); display: block; }
+  .note.bad { border-left-color: var(--danger); background: var(--danger-soft); }
+  .note.bad .tag { color: var(--danger); }
+  .note.warn { border-left-color: var(--warn); background: var(--warn-soft); }
+  .note.warn .tag { color: var(--warn); }
+  .note.good { border-left-color: var(--ok); background: var(--ok-soft); }
+  .note.good .tag { color: var(--ok); }
+
+  figure { margin: 1.5rem 0; background: #10100B; border: 1px solid #2E2D22; border-radius: 5px; overflow: hidden; }
+  figure .sc { overflow-x: auto; padding: 1.1rem; }
+  figure svg { display: block; width: 100%; height: auto; min-width: 640px; }
+  figcaption { border-top: 1px solid #2E2D22; padding: 0.65rem 1.1rem 0.8rem; font-size: 0.84rem; color: #A5A18C; }
+  figcaption b { color: #E9E6D8; }
+  .fbox { fill: #1A1A12; stroke: #3D3B2C; stroke-width: 1.25; }
+  .fbox-w { fill: #2E2716; stroke: #E0A45C; stroke-width: 1.25; }
+  .fbox-g { fill: #16291F; stroke: #71C79A; stroke-width: 1.25; }
+  .flbl { fill: #E9E6D8; font: 600 13px var(--f-mono); }
+  .fsub { fill: #A5A18C; font: 400 11px var(--f-mono); }
+  .fedge-w { stroke: #E0A45C; stroke-width: 1.5; fill: none; }
+  .fedge-g { stroke: #71C79A; stroke-width: 1.5; fill: none; stroke-dasharray: 6 4; }
+  .felab-w { fill: #E0A45C; font: 400 11px var(--f-mono); }
+  .felab-g { fill: #71C79A; font: 400 11px var(--f-mono); }
+
+  .tablewrap { overflow-x: auto; margin: 1.3rem 0; border: 1px solid var(--rule); border-radius: 4px; }
+  table { border-collapse: collapse; width: 100%; min-width: 520px; background: var(--surface); font-size: 0.9rem; }
+  th, td { text-align: left; padding: 0.55rem 0.8rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { font-family: var(--f-mono); font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); background: var(--surface-2); white-space: nowrap; }
+  tbody tr:last-child td { border-bottom: none; }
+  td.mono { font-family: var(--f-mono); font-size: 0.8rem; }
+  td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  details { background: var(--surface); border: 1px solid var(--rule); border-radius: 4px; padding: 0.7rem 1rem; margin: 0.5rem 0; }
+  summary { cursor: pointer; font-weight: 600; font-size: 0.96rem; }
+  details[open] summary { margin-bottom: 0.5rem; }
+  details p { margin: 0.4rem 0 0; font-size: 0.93rem; color: var(--ink-2); }
+
+  footer { border-top: 1px solid var(--rule); padding: 2rem 1.5rem 3rem; text-align: center; color: var(--ink-3); font-family: var(--f-mono); font-size: 0.76rem; line-height: 1.7; }
+
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<header class="masthead">
+  <div class="inner">
+    <p class="kicker">ai-interview-frontend &middot; hands-on workbook</p>
+    <h1>Ship It Yourself</h1>
+    <p class="lede">
+      Tick every box and you will have taken a React app from your laptop to a live Kubernetes
+      cluster on AWS &mdash; using a pipeline that stores <span class="hl">zero credentials</span>.
+      Every step tells you what success looks like.
+    </p>
+    <div class="badges">
+      <span class="badge">~3 hours, first time</span>
+      <span class="badge">36 steps</span>
+      <span class="badge">Needs a GitHub + AWS account</span>
+      <span class="badge money">Costs real money &mdash; read Part 6 first</span>
+    </div>
+  </div>
+</header>
+
+<div class="progress">
+  <div class="inner">
+    <span class="kicker">Progress</span>
+    <div class="track"><i id="bar"></i></div>
+    <span id="count">0 / 0</span>
+    <button id="reset" type="button">Reset</button>
+  </div>
+</div>
+
+<main>
+<section class="part" id="p0">
+  <div class="parthead">
+    <span class="pn">PART 0</span>
+    <h2>Understand this one thing first</h2>
+    <span class="time">10 min</span>
+  </div>
+
+  <p class="partnote">
+    Almost every student gets confused at the same place, so let's kill it before you start.
+    <strong>Two different things talk to AWS in this project</strong>, and only one of them is
+    keyless.
+  </p>
+
+  <figure>
+    <div class="sc">
+      <svg viewBox="0 0 900 300" role="img"
+           aria-label="Two separate paths reach the AWS account: your laptop uses your own credentials once to create the infrastructure, while GitHub Actions uses a short-lived OIDC token on every push to deploy the app.">
+        <defs>
+          <marker id="mw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 1l9 4-9 4z" fill="#E0A45C"/>
+          </marker>
+          <marker id="mg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 1l9 4-9 4z" fill="#71C79A"/>
+          </marker>
+        </defs>
+
+        <rect class="fbox-w" x="40" y="40" width="180" height="62" rx="3"/>
+        <text class="flbl" x="130" y="66" text-anchor="middle">You, on your laptop</text>
+        <text class="fsub" x="130" y="84" text-anchor="middle">Parts 1–3 of this guide</text>
+
+        <rect class="fbox-g" x="40" y="200" width="180" height="62" rx="3"/>
+        <text class="flbl" x="130" y="226" text-anchor="middle">GitHub Actions</text>
+        <text class="fsub" x="130" y="244" text-anchor="middle">Part 4 onwards</text>
+
+        <rect class="fbox" x="660" y="110" width="200" height="82" rx="3"/>
+        <text class="flbl" x="760" y="140" text-anchor="middle">Your AWS account</text>
+        <text class="fsub" x="760" y="159" text-anchor="middle">ECR · EKS · IAM</text>
+        <text class="fsub" x="760" y="177" text-anchor="middle">region ap-south-1</text>
+
+        <path class="fedge-w" d="M220 71 C400 71 470 105 648 133" marker-end="url(#mw)"/>
+        <text class="felab-w" x="440" y="34" text-anchor="middle">your own credentials — ONCE, to build the infrastructure</text>
+        <rect x="408" y="82" width="54" height="20" fill="#10100B"/>
+        <g stroke="#E0A45C" stroke-width="1.6" fill="none" stroke-linecap="round">
+          <circle cx="419" cy="92" r="5"/>
+          <path d="M424 92 H452 M444 92 V98 M450 92 V97"/>
+        </g>
+
+        <path class="fedge-g" d="M220 231 C400 231 470 196 648 168" marker-end="url(#mg)"/>
+        <text class="felab-g" x="440" y="278" text-anchor="middle">a signed token — EVERY push, to deploy the app</text>
+        <rect x="404" y="199" width="64" height="22" rx="11" fill="#10100B" stroke="#71C79A" stroke-width="1.2" stroke-dasharray="4 3"/>
+        <text class="felab-g" x="436" y="214" text-anchor="middle">token</text>
+      </svg>
+    </div>
+    <figcaption>
+      <b>Two paths, one account.</b> The amber path happens a handful of times, by hand, from your
+      machine. The green path happens on every push, automatically, and carries nothing that can
+      be stolen. "No hardcoded credentials" is a claim about the green path only &mdash; you still
+      need your own AWS login to build the thing in the first place.
+    </figcaption>
+  </figure>
+
+  <ol class="steps">
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="0.1"><span></span></label>
+      <div class="body">
+        <h3>Fork the repository into your own GitHub account</h3>
+        <p class="why">You need a repo you control, because you will be adding secrets and an environment to it.</p>
+<pre>git clone https://github.com/&lt;YOUR-USERNAME&gt;/eks-demo.git
+cd eks-demo</pre>
+        <p class="expect"><b>You should see:</b> the folders <code>src/</code>, <code>k8s/</code> and <code>.github/workflows/ci.yml</code>.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="0.2"><span></span></label>
+      <div class="body">
+        <h3>Install the six tools and prove each one works</h3>
+        <p class="why">Do not skip the version check. Half of all "it doesn't work" problems are an old CLI.</p>
+<pre>git --version              <span class="c"># any recent version</span>
+node -v                    <span class="c"># must be v20 or newer</span>
+docker --version           <span class="c"># and Docker Desktop must be RUNNING</span>
+aws --version              <span class="c"># must say aws-cli/2.x — v1 will not work</span>
+kubectl version --client
+eksctl version</pre>
+        <p class="expect"><b>You should see:</b> a version number from all six, no "command not found".</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="0.3"><span></span></label>
+      <div class="body">
+        <h3>Give your laptop access to AWS</h3>
+        <p class="why">This is the amber path in the diagram. It is for you, not for the pipeline.</p>
+<pre><span class="c"># Best: short-lived credentials through IAM Identity Center</span>
+aws configure sso
+
+<span class="c"># Acceptable for a personal learning account:</span>
+aws configure               <span class="c"># paste an access key, region ap-south-1</span></pre>
+        <p class="expect"><b>You should see:</b> <code>aws sts get-caller-identity</code> prints your account and user.</p>
+        <p class="stop"><b>Never:</b> commit these credentials, paste them into GitHub secrets, or put them in the repo. They live only in <code>~/.aws/</code> on your machine.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="0.4"><span></span></label>
+      <div class="body">
+        <h3>Save your account ID in a shell variable</h3>
+        <p class="why">You will paste it into four different commands. Set it once.</p>
+<pre>ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+echo $ACCOUNT_ID           <span class="c"># 12 digits</span>
+
+<span class="c"># Windows PowerShell:</span>
+<span class="c"># $ACCOUNT_ID = aws sts get-caller-identity --query Account --output text</span></pre>
+        <p class="expect"><b>You should see:</b> a 12-digit number, not an error.</p>
+      </div>
+    </li>
+  </ol>
+</section>
+
+<section class="part" id="p1">
+  <div class="parthead">
+    <span class="pn">PART 1</span>
+    <h2>Get it running on your laptop</h2>
+    <span class="time">20 min</span>
+  </div>
+
+  <p class="partnote">
+    No AWS yet. Prove the app builds and the container works locally &mdash; debugging on your own
+    machine is a hundred times faster than debugging in a pipeline.
+  </p>
+
+  <ol class="steps">
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="1.1"><span></span></label>
+      <div class="body">
+        <h3>Install dependencies with <code>npm ci</code></h3>
+        <p class="why"><code>ci</code>, not <code>install</code>. It installs the exact versions in the lockfile and fails if they disagree &mdash; the same thing CI does.</p>
+<pre>npm ci</pre>
+        <p class="expect"><b>You should see:</b> "added NNN packages" and a <code>node_modules/</code> folder.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="1.2"><span></span></label>
+      <div class="body">
+        <h3>Start the dev server</h3>
+        <p class="why">Confirms the app itself is fine before you blame anything else.</p>
+<pre>npm run dev                <span class="c"># http://localhost:5173</span></pre>
+        <p class="expect"><b>You should see:</b> the login screen in your browser. Login will fail &mdash; there is no backend running. That is expected.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="1.3"><span></span></label>
+      <div class="body">
+        <h3>Run the exact three checks CI will run</h3>
+        <p class="why">Every red pipeline you avoid here saves you five minutes of waiting.</p>
+<pre>npm run lint               <span class="c"># must be ZERO warnings, not just zero errors</span>
+npm run test:coverage      <span class="c"># tests + writes coverage/lcov.info</span>
+npm run build              <span class="c"># produces dist/</span></pre>
+        <p class="expect"><b>You should see:</b> all three finish with exit code 0 and a <code>dist/</code> folder appears.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="1.4"><span></span></label>
+      <div class="body">
+        <h3>Build the real container image</h3>
+        <p class="why">This is the identical <code>Dockerfile</code> the pipeline uses. If it fails here, it fails there.</p>
+<pre>docker build -t frontend:local .</pre>
+        <p class="expect"><b>You should see:</b> both stages complete and <code>docker images</code> lists <code>frontend:local</code> at roughly 50&ndash;80 MB.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="1.5"><span></span></label>
+      <div class="body">
+        <h3>Run it and check the two endpoints that matter</h3>
+        <p class="why">Kubernetes will judge this container on <code>/healthz</code>, and your app will be configured by <code>runtime-config.js</code>. Look at both now so you recognise them later.</p>
+<pre>docker run --rm -p 3000:3000 \
+  -e API_BASE_URL=http://localhost:8080 \
+  -e APP_ENV=dev \
+  frontend:local
+
+<span class="c"># in a second terminal:</span>
+curl -i http://localhost:3000/healthz
+curl -s http://localhost:3000/runtime-config.js</pre>
+        <p class="expect"><b>You should see:</b> <code>HTTP/1.1 200</code> with the body <code>ok</code>, and a JS file containing the <code>API_BASE_URL</code> you passed in.</p>
+        <p class="stop"><b>Understand this:</b> you changed the app's configuration without rebuilding the image. That is the whole point of the design &mdash; one image, many environments.</p>
+      </div>
+    </li>
+  </ol>
+</section>
+
+<section class="part" id="p2">
+  <div class="parthead">
+    <span class="pn">PART 2</span>
+    <h2>Build the AWS side</h2>
+    <span class="time">45 min &mdash; mostly waiting</span>
+  </div>
+
+  <div class="note bad">
+    <span class="tag">Money starts here</span>
+    <p>
+      From step 2.2 onwards you are being billed by the hour. Roughly <strong>$0.20 per hour, about
+      $5 per day.</strong> Read <a href="#p6">Part 6</a> now so you know how to switch it off, and
+      finish the whole guide in one sitting if you can.
+    </p>
+  </div>
+
+  <ol class="steps">
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="2.1"><span></span></label>
+      <div class="body">
+        <h3>Create the ECR repository</h3>
+        <p class="why">The private warehouse your images get pushed to. Name it exactly this, or change <code>ECR_REPO</code> in <code>ci.yml</code> to match.</p>
+<pre>aws ecr create-repository \
+  --repository-name ai-interview-dev-platform/frontend \
+  --region ap-south-1 \
+  --image-scanning-configuration scanOnPush=true</pre>
+        <p class="expect"><b>You should see:</b> JSON containing a <code>repositoryUri</code> that starts with your account ID.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="2.2"><span></span></label>
+      <div class="body">
+        <h3>Create the EKS cluster</h3>
+        <p class="why">This is the slow one. Start it, then read the reference doc while it runs.</p>
+<pre>eksctl create cluster \
+  --name ai-interview \
+  --region ap-south-1 \
+  --nodegroup-name workers \
+  --node-type t3.small \
+  --nodes 2 \
+  --managed \
+  --vpc-nat-mode Disable      <span class="c"># saves ~$40/month; fine for learning</span></pre>
+        <p class="expect"><b>You should see:</b> "EKS cluster is ready" after <strong>15&ndash;20 minutes</strong>. Do not interrupt it.</p>
+        <p class="stop"><b>Don't confuse these:</b> eksctl creates an OIDC provider for the <em>cluster</em> (so pods can assume roles). That is a completely different thing from the <em>GitHub</em> OIDC provider you create in step 2.4. You need both, for different reasons.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="2.3"><span></span></label>
+      <div class="body">
+        <h3>Connect kubectl and create the namespace</h3>
+        <p class="why">The pipeline deploys into <code>demo</code>. It will not create it for you.</p>
+<pre>aws eks update-kubeconfig --region ap-south-1 --name ai-interview
+kubectl get nodes
+kubectl create namespace demo</pre>
+        <p class="expect"><b>You should see:</b> two nodes with status <code>Ready</code>, then <code>namespace/demo created</code>.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="2.4"><span></span></label>
+      <div class="body">
+        <h3>Register GitHub as an identity provider</h3>
+        <p class="why">This tells AWS "tokens signed by GitHub are worth reading". Once per AWS account, ever.</p>
+<pre>aws iam create-open-id-connect-provider \
+  --url https://token.actions.githubusercontent.com \
+  --client-id-list sts.amazonaws.com</pre>
+        <p class="expect"><b>You should see:</b> an ARN ending in <code>oidc-provider/token.actions.githubusercontent.com</code>. If it says it already exists, that is fine &mdash; move on.</p>
+        <p class="stop"><b>If your CLI demands a thumbprint:</b> add <code>--thumbprint-list 6938fd4d98bab03faadb97b34396831e3780aea1</code>. AWS no longer verifies it for GitHub, but older CLIs still require the flag.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="2.5"><span></span></label>
+      <div class="body">
+        <h3>Write the trust policy &mdash; the single most important file</h3>
+        <p class="why">This decides <em>who</em> may assume the role. Get the <code>sub</code> line wrong and either nothing works, or far too much does.</p>
+<pre>cat &gt; trust.json &lt;&lt;EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {
+      "Federated": "arn:aws:iam::${ACCOUNT_ID}:oidc-provider/token.actions.githubusercontent.com"
+    },
+    "Action": "sts:AssumeRoleWithWebIdentity",
+    "Condition": {
+      "StringEquals": {
+        "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+        "token.actions.githubusercontent.com:sub": "repo:<span class="k">YOUR-USERNAME</span>/<span class="k">YOUR-REPO</span>:environment:production"
+      }
+    }
+  }]
+}
+EOF
+
+cat trust.json            <span class="c"># READ IT. Check the username and repo name.</span></pre>
+        <p class="expect"><b>You should see:</b> your real 12-digit account ID, your real GitHub username, and the word <code>production</code>.</p>
+        <p class="stop"><b>Why <code>environment:production</code> and not a branch?</b> Because the deploy job declares <code>environment: production</code>, GitHub changes the subject claim to the environment form. Copying <code>:ref:refs/heads/master</code> from a tutorial is the #1 reason this fails. Never use <code>*</code> here &mdash; that would let any repository on GitHub into your account.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="2.6"><span></span></label>
+      <div class="body">
+        <h3>Write the permissions policy</h3>
+        <p class="why">What the role may actually <em>do</em>. Push to one ECR repo, describe one cluster. Nothing else.</p>
+<pre>cat &gt; permissions.json &lt;&lt;EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Effect": "Allow", "Action": "ecr:GetAuthorizationToken", "Resource": "*" },
+    { "Effect": "Allow",
+      "Action": [
+        "ecr:BatchCheckLayerAvailability", "ecr:InitiateLayerUpload",
+        "ecr:UploadLayerPart", "ecr:CompleteLayerUpload",
+        "ecr:PutImage", "ecr:BatchGetImage"
+      ],
+      "Resource": "arn:aws:ecr:ap-south-1:${ACCOUNT_ID}:repository/ai-interview-dev-platform/frontend" },
+    { "Effect": "Allow", "Action": "eks:DescribeCluster",
+      "Resource": "arn:aws:eks:ap-south-1:${ACCOUNT_ID}:cluster/ai-interview" }
+  ]
+}
+EOF</pre>
+        <p class="expect"><b>You should see:</b> no <code>"*"</code> anywhere except on <code>GetAuthorizationToken</code>, which cannot be scoped.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="2.7"><span></span></label>
+      <div class="body">
+        <h3>Create the role and attach the policy</h3>
+        <p class="why">Now the two files become a real IAM role.</p>
+<pre>aws iam create-role \
+  --role-name gh-deploy-frontend \
+  --assume-role-policy-document file://trust.json
+
+aws iam put-role-policy \
+  --role-name gh-deploy-frontend \
+  --policy-name deploy-permissions \
+  --policy-document file://permissions.json
+
+<span class="c"># copy this ARN — you need it in step 3.3</span>
+aws iam get-role --role-name gh-deploy-frontend --query Role.Arn --output text</pre>
+        <p class="expect"><b>You should see:</b> <code>arn:aws:iam::&lt;your-id&gt;:role/gh-deploy-frontend</code>. Save it somewhere.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="2.8"><span></span></label>
+      <div class="body">
+        <h3>Let the role into the cluster</h3>
+        <p class="why">AWS permission and Kubernetes permission are two separate systems. The role can now <em>find</em> the cluster; this lets it <em>use</em> the cluster &mdash; in one namespace only.</p>
+<pre>aws eks create-access-entry \
+  --cluster-name ai-interview --region ap-south-1 \
+  --principal-arn arn:aws:iam::${ACCOUNT_ID}:role/gh-deploy-frontend \
+  --type STANDARD
+
+aws eks associate-access-policy \
+  --cluster-name ai-interview --region ap-south-1 \
+  --principal-arn arn:aws:iam::${ACCOUNT_ID}:role/gh-deploy-frontend \
+  --policy-arn arn:aws:eks::aws:cluster-access-policy/AmazonEKSAdminPolicy \
+  --access-scope type=namespace,namespaces=demo</pre>
+        <p class="expect"><b>You should see:</b> <code>aws eks list-access-entries --cluster-name ai-interview</code> now lists your role.</p>
+        <p class="stop"><b>Housekeeping:</b> delete <code>trust.json</code> and <code>permissions.json</code> when you're done, or at least never commit them. They aren't secret, but they don't belong in the repo.</p>
+      </div>
+    </li>
+  </ol>
+</section>
+
+<section class="part" id="p3">
+  <div class="parthead">
+    <span class="pn">PART 3</span>
+    <h2>Wire up GitHub</h2>
+    <span class="time">20 min</span>
+  </div>
+
+  <p class="partnote">
+    Two secrets, one environment, and a few values in <code>ci.yml</code> that must match what you
+    just built. Notice that <span class="hl">neither secret is an AWS credential</span>.
+  </p>
+
+  <ol class="steps">
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="3.1"><span></span></label>
+      <div class="body">
+        <h3>Create a SonarCloud project and get a token</h3>
+        <p class="why">SonarCloud is free for public repos. Sign in with GitHub, add your repository, and choose "With GitHub Actions" as the analysis method.</p>
+<pre><span class="c"># sonarcloud.io → My Account → Security → Generate Token</span>
+<span class="c"># Note down: organization key and project key</span></pre>
+        <p class="expect"><b>You should see:</b> a token starting with <code>squ_</code> or similar. Copy it now &mdash; it is shown only once.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="3.2"><span></span></label>
+      <div class="body">
+        <h3>Create the <code>production</code> environment</h3>
+        <p class="why">The deploy job references it. It also decides the <code>sub</code> claim you already put in the trust policy &mdash; so the name must be exactly <code>production</code>.</p>
+<pre><span class="c"># GitHub → Settings → Environments → New environment</span>
+<span class="c"># Name: production</span>
+<span class="c"># Optional: add yourself as a required reviewer to practise approvals</span></pre>
+        <p class="expect"><b>You should see:</b> <code>production</code> listed under Environments.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="3.3"><span></span></label>
+      <div class="body">
+        <h3>Add <code>AWS_DEPLOY_ROLE_ARN</code> to that environment</h3>
+        <p class="why">The role ARN from step 2.7. Knowing it grants nothing &mdash; a caller still needs a token the trust policy accepts.</p>
+<pre><span class="c"># Settings → Environments → production → Add environment secret</span>
+<span class="c"># Name:  AWS_DEPLOY_ROLE_ARN</span>
+<span class="c"># Value: arn:aws:iam::&lt;ACCOUNT_ID&gt;:role/gh-deploy-frontend</span></pre>
+        <p class="expect"><b>You should see:</b> one secret listed under the production environment.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="3.4"><span></span></label>
+      <div class="body">
+        <h3>Add <code>SONAR_TOKEN</code> as a repository secret</h3>
+        <p class="why">The <code>app</code> job needs it, and that job has no environment &mdash; so this one goes at repository level, not environment level.</p>
+<pre><span class="c"># Settings → Secrets and variables → Actions → New repository secret</span>
+<span class="c"># Name: SONAR_TOKEN</span></pre>
+        <p class="expect"><b>You should see:</b> <code>SONAR_TOKEN</code> under repository secrets and <code>AWS_DEPLOY_ROLE_ARN</code> under the environment. Two different places &mdash; that is correct.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="3.5"><span></span></label>
+      <div class="body">
+        <h3>Make the config in the repo match your AWS</h3>
+        <p class="why">The workflow ships with someone else's cluster names. Change them, and check the branch condition.</p>
+<pre><span class="c"># .github/workflows/ci.yml</span>
+<span class="k">env</span>:
+  AWS_REGION:    ap-south-1
+  EKS_CLUSTER:   ai-interview
+  K8S_NAMESPACE: demo
+  ECR_REPO:      ai-interview-dev-platform
+
+<span class="c"># sonar-project.properties</span>
+sonar.projectKey=&lt;your key&gt;
+sonar.organization=&lt;your org&gt;</pre>
+        <p class="stop"><b>Check your branch name.</b> The deploy job only runs when the ref is <code>refs/heads/master</code>. If your default branch is <code>main</code>, every check will pass and the deploy will be skipped with no error at all. Either rename the branch or edit the <code>if:</code> condition.</p>
+        <p class="expect"><b>You should see:</b> your changes committed and pushed.</p>
+      </div>
+    </li>
+  </ol>
+</section>
+
+<section class="part" id="p4">
+  <div class="parthead">
+    <span class="pn">PART 4</span>
+    <h2>Run the pipeline</h2>
+    <span class="time">15 min</span>
+  </div>
+
+  <ol class="steps">
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="4.1"><span></span></label>
+      <div class="body">
+        <h3>Trigger it by hand the first time</h3>
+        <p class="why">A manual run does exactly what a push does, but on your schedule &mdash; and the "Check config" step tells you within seconds if a secret is missing.</p>
+<pre><span class="c"># GitHub → Actions → "CI/CD frontend" → Run workflow → Branch: master</span></pre>
+        <p class="expect"><b>You should see:</b> four jobs appear &mdash; <code>app</code>, <code>secrets</code>, <code>manifests</code> running together, <code>deploy</code> waiting.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="4.2"><span></span></label>
+      <div class="body">
+        <h3>Watch the three checks and read one log properly</h3>
+        <p class="why">Do not just watch for green. Open the <code>app</code> job and actually read the lint, test and coverage output &mdash; that habit is what separates people who can debug pipelines from people who re-run them hoping.</p>
+        <p class="expect"><b>You should see:</b> three green ticks in roughly 2&ndash;4 minutes, then <code>deploy</code> starting.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="4.3"><span></span></label>
+      <div class="body">
+        <h3>Watch the deploy job, step by step</h3>
+        <p class="why">These are the steps that touch your AWS account. Expand "Log in to AWS" and notice there is no key in the log &mdash; only a role being assumed.</p>
+<pre><span class="c"># the order you will see:</span>
+Check config → Log in to AWS → Log in to ECR → Build
+→ Scan the image (Trivy) → Push → Get cluster credentials
+→ Deploy → Verify → Show what is running → Summary</pre>
+        <p class="expect"><b>You should see:</b> the run summary table at the bottom with your commit SHA, the image URI, the cluster and the namespace.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="4.4"><span></span></label>
+      <div class="body">
+        <h3>Prove it from your own terminal</h3>
+        <p class="why">Trust the cluster, not the green tick.</p>
+<pre>kubectl get pods -n demo -l app=frontend
+kubectl get deploy frontend -n demo \
+  -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+
+<span class="c"># open it in your browser:</span>
+kubectl port-forward -n demo svc/frontend 8081:80
+<span class="c"># → http://localhost:8081</span></pre>
+        <p class="expect"><b>You should see:</b> a pod <code>Running 1/1</code>, an image tag equal to your commit SHA, and the login page at localhost:8081.</p>
+        <p class="stop"><b>Login will fail</b> with "the server returned a web page instead of data". Correct &mdash; there is no backend and no Ingress routing <code>/api</code> yet. The frontend itself is working.</p>
+      </div>
+    </li>
+  </ol>
+</section>
+
+<section class="part" id="p5">
+  <div class="parthead">
+    <span class="pn">PART 5</span>
+    <h2>Break it on purpose</h2>
+    <span class="time">40 min</span>
+  </div>
+
+  <p class="partnote">
+    This is the part most people skip and the part that actually teaches you something. A gate you
+    have never seen fire is a gate you don't believe in. Do each one on a
+    <strong>throwaway branch</strong>, then undo it.
+  </p>
+
+  <ol class="steps">
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="5.1"><span></span></label>
+      <div class="body">
+        <h3>Experiment 1 &mdash; commit a fake AWS key</h3>
+        <p class="why">See Gitleaks catch it, then learn why deleting the line does not fix it.</p>
+<pre>git checkout -b break/secret
+echo 'aws_access_key_id = AKIAQ7XZ4T2WV9LMN3BC' &gt; creds.txt
+echo 'aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY' &gt;&gt; creds.txt
+git add creds.txt &amp;&amp; git commit -m "oops" &amp;&amp; git push -u origin break/secret</pre>
+        <p class="expect"><b>You should see:</b> the <code>secrets</code> job go red, naming the file and line.</p>
+        <p class="stop"><b>Now the real lesson:</b> delete the file, commit, push again &mdash; it is <em>still</em> red, because the old commit still holds the key. In real life you rotate the credential first; rewriting history second. Just delete the branch when you're done.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="5.2"><span></span></label>
+      <div class="body">
+        <h3>Experiment 2 &mdash; add one unused variable</h3>
+        <p class="why">Proves that <code>--max-warnings 0</code> really does mean zero.</p>
+<pre>git checkout -b break/lint
+<span class="c"># add this line inside any component in src/pages/</span>
+<span class="c">#   const unusedThing = 42;</span>
+git commit -am "add a warning" &amp;&amp; git push -u origin break/lint</pre>
+        <p class="expect"><b>You should see:</b> the <code>app</code> job fail at the Lint step &mdash; on a warning, not an error.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="5.3"><span></span></label>
+      <div class="body">
+        <h3>Experiment 3 &mdash; break the trust policy</h3>
+        <p class="why">This produces the error you are most likely to hit for real. Meet it now, on purpose, when you already know the cause.</p>
+<pre><span class="c"># edit trust.json: change the sub to the branch form</span>
+<span class="c">#   "…:sub": "repo:YOU/YOUR-REPO:ref:refs/heads/master"</span>
+
+aws iam update-assume-role-policy \
+  --role-name gh-deploy-frontend --policy-document file://trust.json
+
+<span class="c"># now run the workflow again from the Actions tab</span></pre>
+        <p class="expect"><b>You should see:</b> the deploy job fail at "Log in to AWS" with <code>Not authorized to perform sts:AssumeRoleWithWebIdentity</code>.</p>
+        <p class="stop"><b>Put it back</b> to the <code>environment:production</code> form and re-run. Same command, correct file.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="5.4"><span></span></label>
+      <div class="body">
+        <h3>Experiment 4 &mdash; ship a pod that never becomes ready</h3>
+        <p class="why">The best one. You will watch an automatic rollback save a live site.</p>
+<pre><span class="c"># k8s/deployment.yaml → readinessProbe → path: /not-here</span>
+git commit -am "break the readiness probe"
+git push origin master</pre>
+        <p class="expect"><b>You should see:</b> Deploy hangs, fails after the 5-minute timeout, then the "Roll back" step runs <code>rollout undo</code> &mdash; and <code>kubectl get pods -n demo</code> shows the <em>old</em> pod still healthy the whole time.</p>
+        <p class="stop"><b>That is the point.</b> A broken deploy did not become a broken website. Revert the change and push again.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="5.5"><span></span></label>
+      <div class="body">
+        <h3>Experiment 5 &mdash; ship a vulnerable base image</h3>
+        <p class="why">Shows that Trivy blocks the image <em>before</em> it reaches ECR.</p>
+<pre><span class="c"># Dockerfile → change the runtime stage to an old tag, e.g.</span>
+<span class="c">#   FROM nginx:1.21-alpine AS runtime</span>
+git checkout -b break/cve &amp;&amp; git commit -am "old base" &amp;&amp; git push -u origin break/cve
+<span class="c"># then run the workflow on that branch and temporarily flip the deploy `if:`</span></pre>
+        <p class="expect"><b>You should see:</b> the Trivy step print a table of CVEs and fail the job. Check ECR &mdash; the image was never pushed.</p>
+        <p class="stop"><b>If nothing critical shows up:</b> temporarily set <code>severity: HIGH,CRITICAL</code> in the Trivy step. Then put everything back.</p>
+      </div>
+    </li>
+  </ol>
+</section>
+
+<section class="part" id="p6">
+  <div class="parthead">
+    <span class="pn">PART 6</span>
+    <h2>Clean up &mdash; do not skip this</h2>
+    <span class="time">15 min</span>
+  </div>
+
+  <div class="note bad">
+    <span class="tag">This is the step that costs students money</span>
+    <p>
+      An EKS cluster bills whether you use it or not. Forgetting it over a two-week semester break
+      is a bill of roughly <strong>$70</strong>. Set a phone reminder before you start Part 2 if you
+      have to.
+    </p>
+  </div>
+
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>What</th><th>Rough cost</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>EKS control plane</td><td class="num">$0.10 / hr</td><td>charged even with zero pods running</td></tr>
+        <tr><td>2 &times; t3.small nodes</td><td class="num">~$0.05 / hr</td><td>the worker machines</td></tr>
+        <tr><td>NAT gateway</td><td class="num">~$0.06 / hr</td><td>avoided by <code>--vpc-nat-mode Disable</code> in step 2.2</td></tr>
+        <tr><td>EBS volumes</td><td class="num">~$0.01 / hr</td><td>node disks</td></tr>
+        <tr><td>ECR storage</td><td class="num">pennies</td><td>$0.10 per GB-month</td></tr>
+        <tr><td><strong>Total</strong></td><td class="num"><strong>~$0.20 / hr</strong></td><td><strong>about $5 a day, $145 a month</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <ol class="steps">
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="6.1"><span></span></label>
+      <div class="body">
+        <h3>Delete the cluster</h3>
+        <p class="why">This is 95% of the bill. It takes 10&ndash;15 minutes; wait for it to finish.</p>
+<pre>eksctl delete cluster --name ai-interview --region ap-south-1 --wait</pre>
+        <p class="expect"><b>You should see:</b> "all cluster resources were deleted".</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="6.2"><span></span></label>
+      <div class="body">
+        <h3>Delete the ECR repository</h3>
+        <p class="why"><code>--force</code> because it still contains your images.</p>
+<pre>aws ecr delete-repository \
+  --repository-name ai-interview-dev-platform/frontend \
+  --region ap-south-1 --force</pre>
+        <p class="expect"><b>You should see:</b> the repository echoed back in the JSON response.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="6.3"><span></span></label>
+      <div class="body">
+        <h3>Delete the IAM role</h3>
+        <p class="why">Free, but leaving an unused role that can reach your account is exactly the habit this project is teaching you to avoid.</p>
+<pre>aws iam delete-role-policy --role-name gh-deploy-frontend --policy-name deploy-permissions
+aws iam delete-role --role-name gh-deploy-frontend</pre>
+        <p class="expect"><b>You should see:</b> no output. That means success.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="6.4"><span></span></label>
+      <div class="body">
+        <h3>Delete the GitHub OIDC provider &mdash; only if nothing else uses it</h3>
+        <p class="why">It is free and shared account-wide. If you plan to build a second pipeline, keep it.</p>
+<pre>aws iam delete-open-id-connect-provider \
+  --open-id-connect-provider-arn \
+  arn:aws:iam::${ACCOUNT_ID}:oidc-provider/token.actions.githubusercontent.com</pre>
+        <p class="expect"><b>You should see:</b> no output.</p>
+      </div>
+    </li>
+
+    <li class="step">
+      <label class="tick"><input type="checkbox" data-step="6.5"><span></span></label>
+      <div class="body">
+        <h3>Check nothing survived</h3>
+        <p class="why">Deletions occasionally leave orphans, especially load balancers and disks. Look with your own eyes.</p>
+<pre>aws eks list-clusters --region ap-south-1
+aws ec2 describe-instances --region ap-south-1 \
+  --filters "Name=instance-state-name,Values=running" \
+  --query "Reservations[].Instances[].InstanceId"
+aws elbv2 describe-load-balancers --region ap-south-1 --query "LoadBalancers[].LoadBalancerName"
+aws ec2 describe-volumes --region ap-south-1 --query "Volumes[?State=='available'].VolumeId"</pre>
+        <p class="expect"><b>You should see:</b> empty lists from all four. Then open the AWS Billing console tomorrow and confirm the daily cost has dropped to near zero.</p>
+      </div>
+    </li>
+  </ol>
+</section>
+
+<section class="part" id="check">
+  <div class="parthead">
+    <span class="pn">CHECK</span>
+    <h2>Did you actually understand it?</h2>
+    <span class="time">10 min</span>
+  </div>
+
+  <p class="partnote">
+    Answer out loud before opening each one. If you can answer all eight, you can explain this
+    project in an interview.
+  </p>
+
+  <details>
+    <summary>Where is the AWS access key stored in this project?</summary>
+    <p>
+      Nowhere. There isn't one. GitHub sends a short-lived signed token, AWS checks it against the
+      trust policy and returns credentials that expire within the hour. The only AWS credentials
+      that exist are the ones on your own laptop, used to build the infrastructure in Part 2.
+    </p>
+  </details>
+
+  <details>
+    <summary>What does <code>id-token: write</code> allow?</summary>
+    <p>
+      Only that the job may <em>ask GitHub</em> for an identity token. It grants no AWS access at
+      all. Whether that token is worth anything is decided entirely by the trust policy on the AWS
+      side.
+    </p>
+  </details>
+
+  <details>
+    <summary>Why is the image tagged with the commit SHA instead of <code>latest</code>?</summary>
+    <p>
+      So you can look at any running pod, read its tag, and go straight to the exact line of code.
+      With <code>latest</code>, two pods can be running different code under the same name and
+      rollback becomes guesswork.
+    </p>
+  </details>
+
+  <details>
+    <summary>Why does Trivy run before the push and not after?</summary>
+    <p>
+      Because a vulnerable image that never reaches the registry cannot be pulled by anyone later.
+      Scanning after the push means the bad image is already sitting there for someone to deploy.
+    </p>
+  </details>
+
+  <details>
+    <summary>Why isn't the API URL baked into the JavaScript bundle?</summary>
+    <p>
+      Because then you would need one image per environment, and the image you tested in dev would
+      not be the image you ship to production. Instead the entrypoint writes
+      <code>runtime-config.js</code> at container start, so one image behaves differently in each
+      namespace.
+    </p>
+  </details>
+
+  <details>
+    <summary>What is the difference between the liveness and readiness probes?</summary>
+    <p>
+      Liveness asks "is it alive?" &mdash; if it fails, the container is restarted. Readiness asks
+      "can it serve traffic?" &mdash; if it fails, the pod is removed from the Service but keeps
+      running. Readiness is what makes a zero-downtime rollout possible.
+    </p>
+  </details>
+
+  <details>
+    <summary>Your deploy fails with "Not authorized to perform sts:AssumeRoleWithWebIdentity". First thing you check?</summary>
+    <p>
+      The <code>sub</code> condition in the trust policy. Because the deploy job declares
+      <code>environment: production</code>, it must be
+      <code>repo:OWNER/REPO:environment:production</code> &mdash; not the
+      <code>ref:refs/heads/master</code> form most tutorials show.
+    </p>
+  </details>
+
+  <details>
+    <summary>Why does deleting a leaked secret from a file not fix a Gitleaks failure?</summary>
+    <p>
+      Git keeps every version of every file forever, and Gitleaks scans the whole history. More
+      importantly, the secret has already been published &mdash; so the real fix is to rotate the
+      credential. Rewriting history only makes the scanner quiet.
+    </p>
+  </details>
+</section>
+
+<section class="part" id="mistakes">
+  <div class="parthead">
+    <span class="pn">FIXES</span>
+    <h2>If you're stuck, it's probably one of these</h2>
+    <span class="time">reference</span>
+  </div>
+
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>Symptom</th><th>Almost always</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Checks pass but deploy never runs</td><td>Your branch is <code>main</code>, the <code>if:</code> wants <code>master</code>. No error is shown &mdash; the job is just skipped.</td></tr>
+        <tr><td class="mono">Not authorized … AssumeRoleWithWebIdentity</td><td>The <code>sub</code> in the trust policy. Check the <code>environment:production</code> form, and check spelling &mdash; it is case-sensitive.</td></tr>
+        <tr><td class="mono">Credentials could not be loaded</td><td><code>id-token: write</code> missing. Job-level <code>permissions</code> replaces the default entirely, so list <code>contents: read</code> too.</td></tr>
+        <tr><td class="mono">ImagePullBackOff</td><td>The <code>sed</code> didn't substitute, or the node role can't read ECR. Run <code>kubectl describe pod</code> and read the events.</td></tr>
+        <tr><td class="mono">rollout status timed out</td><td>The readiness probe is failing. <code>kubectl logs -n demo -l app=frontend</code>. The pipeline already rolled back, so the site is fine.</td></tr>
+        <tr><td>"error: You must be logged in to the server"</td><td>Access entry missing (step 2.8), or you're pointed at the wrong cluster.</td></tr>
+        <tr><td>ConfigMap edited, nothing changed</td><td>Expected. Run <code>kubectl rollout restart deployment/frontend -n demo</code>.</td></tr>
+        <tr><td>Sonar step fails with 401</td><td><code>SONAR_TOKEN</code> is missing, expired, or added to the environment instead of the repository.</td></tr>
+        <tr><td>eksctl hangs for 20 minutes</td><td>Normal. Cluster creation genuinely takes that long. Don't Ctrl-C &mdash; you'll orphan a CloudFormation stack.</td></tr>
+        <tr><td>Everything worked, then stopped a day later</td><td>Nothing expired. Check whether someone deleted the cluster &mdash; or whether your AWS account hit a spending limit.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note good">
+    <span class="tag">When you finish</span>
+    <p>
+      You have built a pipeline with six quality and security gates, keyless cloud authentication,
+      least-privilege permissions in two separate systems, automated rollback, and a container that
+      runs as a non-root user. That is a genuinely production-shaped setup &mdash; not a tutorial
+      toy. Put it on your CV and be ready for the eight questions above.
+    </p>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  This workbook only tells you what to do.<br>
+  <a href="https://claude.ai/code/artifact/a2217191-6011-44e9-88a5-e4acc5f4c5be">The Keyless Pipeline</a>
+  explains why every piece is there.
+</footer>
+
+<script>
+(function () {
+  var boxes = Array.prototype.slice.call(document.querySelectorAll('input[type="checkbox"][data-step]'));
+  var bar = document.getElementById('bar');
+  var count = document.getElementById('count');
+  var KEY = 'shipit.progress.v1';
+
+  function read() { try { return JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { return {}; } }
+  function save(o) { try { localStorage.setItem(KEY, JSON.stringify(o)); } catch (e) { /* private mode: run without saving */ } }
+
+  var state = read();
+
+  function paint() {
+    var done = 0;
+    boxes.forEach(function (b) {
+      if (b.checked) done++;
+      var card = b.closest('.step');
+      if (card) card.classList.toggle('done', b.checked);
+    });
+    bar.style.width = (boxes.length ? (done / boxes.length) * 100 : 0) + '%';
+    count.textContent = done + ' / ' + boxes.length;
+  }
+
+  boxes.forEach(function (b) {
+    if (state[b.dataset.step]) b.checked = true;
+    b.addEventListener('change', function () {
+      state[b.dataset.step] = b.checked;
+      save(state);
+      paint();
+    });
+  });
+
+  document.getElementById('reset').addEventListener('click', function () {
+    state = {};
+    save(state);
+    boxes.forEach(function (b) { b.checked = false; });
+    paint();
+  });
+
+  paint();
+})();
+</script>

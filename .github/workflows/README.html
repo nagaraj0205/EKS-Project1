@@ -1,0 +1,2561 @@
+<title>The Keyless Pipeline</title>
+
+<style>
+  :root {
+    --f-head: "Bahnschrift", "DIN Alternate", "Avenir Next Condensed", "Segoe UI", system-ui, sans-serif;
+    --f-body: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+    --f-mono: "Cascadia Mono", "Consolas", ui-monospace, "SF Mono", "Roboto Mono", monospace;
+
+    --ground: #F1F3F1;
+    --surface: #FFFFFF;
+    --surface-2: #E7EAE8;
+    --ink: #131819;
+    --ink-2: #414B4D;
+    --ink-3: #6D7A7B;
+    --rule: #D2D8D5;
+    --accent: #0A6C74;
+    --accent-soft: #DCECEB;
+    --warn: #9C5216;
+    --warn-soft: #F4E7DA;
+    --danger: #A32B25;
+    --danger-soft: #F6E2E0;
+    --ok: #23684A;
+    --ok-soft: #DCEDE3;
+
+    /* Schematic plates keep one look in both themes. */
+    --plate-bg: #0C1518;
+    --plate-line: #33484D;
+    --plate-fill: #132126;
+    --plate-ink: #E4EEED;
+    --plate-dim: #90A6A8;
+    --plate-accent: #4FD1C5;
+    --plate-accent-fill: #0F2A2A;
+    --plate-danger: #E58179;
+    --plate-danger-fill: #2A1615;
+    --plate-warn: #E0A45C;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0E1416;
+      --surface: #151D1F;
+      --surface-2: #1D272A;
+      --ink: #E6EDEC;
+      --ink-2: #A9B7B7;
+      --ink-3: #7C8C8C;
+      --rule: #2A3639;
+      --accent: #4FD1C5;
+      --accent-soft: #113030;
+      --warn: #E0A45C;
+      --warn-soft: #2C2118;
+      --danger: #EF8C84;
+      --danger-soft: #2E1B1A;
+      --ok: #6CC593;
+      --ok-soft: #142A20;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0E1416;
+    --surface: #151D1F;
+    --surface-2: #1D272A;
+    --ink: #E6EDEC;
+    --ink-2: #A9B7B7;
+    --ink-3: #7C8C8C;
+    --rule: #2A3639;
+    --accent: #4FD1C5;
+    --accent-soft: #113030;
+    --warn: #E0A45C;
+    --warn-soft: #2C2118;
+    --danger: #EF8C84;
+    --danger-soft: #2E1B1A;
+    --ok: #6CC593;
+    --ok-soft: #142A20;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--f-body);
+    font-size: 17px;
+    line-height: 1.68;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--f-head);
+    font-weight: 600;
+    line-height: 1.15;
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+
+  code, kbd { font-family: var(--f-mono); font-size: 0.88em; }
+  p code, li code, td code, th code {
+    background: var(--surface-2);
+    padding: 0.12em 0.34em;
+    border-radius: 3px;
+    color: var(--ink);
+  }
+
+  .kicker {
+    font-family: var(--f-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  /* ---------- Masthead ---------- */
+
+  .masthead {
+    border-bottom: 1px solid var(--rule);
+    background:
+      linear-gradient(180deg, var(--accent-soft) 0%, transparent 70%),
+      var(--surface);
+  }
+  .masthead-inner {
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 3.5rem 1.5rem 2.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+  .masthead h1 {
+    font-size: clamp(2.4rem, 6vw, 4rem);
+    letter-spacing: -0.005em;
+    max-width: 16ch;
+  }
+  .lede {
+    font-size: clamp(1.05rem, 2vw, 1.25rem);
+    color: var(--ink-2);
+    max-width: 62ch;
+    margin: 0;
+  }
+  .stamp {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    align-self: flex-start;
+    font-family: var(--f-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ok);
+    background: var(--ok-soft);
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    padding: 0.35rem 0.85rem;
+  }
+  .facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-top: 0.5rem;
+  }
+  .facts div { background: var(--surface); padding: 0.7rem 0.9rem; }
+  .facts dt {
+    font-family: var(--f-mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .facts dd {
+    margin: 0.15rem 0 0;
+    font-family: var(--f-mono);
+    font-size: 0.86rem;
+    color: var(--ink);
+    word-break: break-word;
+  }
+
+  /* ---------- Shell ---------- */
+
+  .wrap {
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 2.5rem 1.5rem 5rem;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 3rem;
+  }
+  @media (min-width: 1080px) {
+    .wrap { grid-template-columns: 14rem minmax(0, 1fr); }
+    .toc { position: sticky; top: 1.5rem; align-self: start; max-height: calc(100vh - 3rem); overflow-y: auto; }
+  }
+
+  .toc ol { list-style: none; margin: 0.6rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+  .toc a {
+    display: flex;
+    gap: 0.6rem;
+    padding: 0.28rem 0.5rem;
+    border-radius: 3px;
+    text-decoration: none;
+    color: var(--ink-2);
+    font-size: 0.88rem;
+    border-left: 2px solid transparent;
+  }
+  .toc a:hover { background: var(--surface); color: var(--ink); border-left-color: var(--accent); }
+  .toc a span { font-family: var(--f-mono); font-size: 0.72rem; color: var(--ink-3); padding-top: 0.15rem; }
+
+  main { display: flex; flex-direction: column; gap: 3.5rem; min-width: 0; }
+
+  section { scroll-margin-top: 1.5rem; }
+  section > * + * { margin-top: 1.1rem; }
+  section h2 {
+    font-size: clamp(1.55rem, 3vw, 2.05rem);
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid var(--ink);
+  }
+  section h2 + .srcref { margin-top: 0.5rem; }
+  section h3 { font-size: 1.22rem; margin-top: 2rem; }
+  section h4 { font-size: 1rem; font-family: var(--f-body); font-weight: 700; margin-top: 1.5rem; }
+  section p { max-width: 68ch; }
+  section ul, section ol { max-width: 68ch; padding-left: 1.2rem; }
+  section li + li { margin-top: 0.35rem; }
+
+  .srcref {
+    font-family: var(--f-mono);
+    font-size: 0.74rem;
+    color: var(--ink-3);
+  }
+
+  /* ---------- Plates (figures + code) ---------- */
+
+  .plate {
+    background: var(--plate-bg);
+    border: 1px solid var(--plate-line);
+    border-radius: 4px;
+    margin: 1.75rem 0;
+    overflow: hidden;
+  }
+  .plate .scroll { overflow-x: auto; padding: 1.25rem; }
+  .plate svg { display: block; width: 100%; height: auto; min-width: 760px; }
+  .plate.extra-wide svg { min-width: 1000px; }
+  .plate figcaption {
+    border-top: 1px solid var(--plate-line);
+    padding: 0.7rem 1.25rem 0.85rem;
+    font-size: 0.84rem;
+    line-height: 1.55;
+    color: var(--plate-dim);
+    font-family: var(--f-body);
+  }
+  .plate figcaption b { color: var(--plate-ink); font-weight: 600; }
+
+  .box { fill: var(--plate-fill); stroke: var(--plate-line); stroke-width: 1.25; }
+  .box-a { fill: var(--plate-accent-fill); stroke: var(--plate-accent); stroke-width: 1.25; }
+  .box-d { fill: var(--plate-danger-fill); stroke: var(--plate-danger); stroke-width: 1.25; }
+  .zone { fill: none; stroke: var(--plate-line); stroke-width: 1; stroke-dasharray: 3 4; }
+  .lbl { fill: var(--plate-ink); font: 600 13px var(--f-mono); }
+  .lbl-s { fill: var(--plate-ink); font: 600 11.5px var(--f-mono); }
+  .sub { fill: var(--plate-dim); font: 400 11px var(--f-mono); }
+  .zonelbl { fill: var(--plate-dim); font: 600 11px var(--f-mono); letter-spacing: 0.1em; }
+  .elab { fill: var(--plate-dim); font: 400 10.5px var(--f-mono); }
+  .elab-a { fill: var(--plate-accent); font: 400 10.5px var(--f-mono); }
+  .elab-d { fill: var(--plate-danger); font: 400 10.5px var(--f-mono); }
+  .acc { fill: var(--plate-accent); font: 600 11.5px var(--f-mono); }
+  .dng { fill: var(--plate-danger); font: 600 11.5px var(--f-mono); }
+  .edge { stroke: var(--plate-line); stroke-width: 1.4; fill: none; }
+  .edge-a { stroke: var(--plate-accent); stroke-width: 1.4; fill: none; }
+  .edge-d { stroke: var(--plate-danger); stroke-width: 1.4; fill: none; stroke-dasharray: 5 4; }
+  .life { stroke: var(--plate-line); stroke-width: 1; stroke-dasharray: 4 5; }
+  .numbadge text { fill: var(--plate-bg); font: 700 12px var(--f-mono); }
+
+  pre {
+    margin: 1.25rem 0;
+    background: var(--plate-bg);
+    border: 1px solid var(--plate-line);
+    border-radius: 4px;
+    padding: 1rem 1.15rem;
+    overflow-x: auto;
+    color: var(--plate-ink);
+    font-family: var(--f-mono);
+    font-size: 0.82rem;
+    line-height: 1.6;
+    tab-size: 2;
+  }
+  pre .c { color: var(--plate-dim); }
+  pre .k { color: var(--plate-accent); }
+  pre .w { color: var(--plate-warn); }
+  pre .x { color: var(--plate-danger); }
+
+  .filename {
+    font-family: var(--f-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    color: var(--ink-3);
+    margin-bottom: -1rem;
+    display: block;
+    padding-top: 1rem;
+  }
+  .filename + pre { margin-top: 0.55rem; }
+
+  /* ---------- Callouts ---------- */
+
+  .note {
+    border-left: 3px solid var(--accent);
+    background: var(--surface);
+    padding: 0.9rem 1.1rem;
+    border-radius: 0 4px 4px 0;
+    margin: 1.5rem 0;
+  }
+  .note > :first-child { margin-top: 0; }
+  .note > :last-child { margin-bottom: 0; }
+  .note p { margin: 0.5rem 0 0; font-size: 0.95rem; }
+  .note .tag {
+    font-family: var(--f-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--accent);
+    display: block;
+  }
+  .note.bad { border-left-color: var(--danger); }
+  .note.bad .tag { color: var(--danger); }
+  .note.warn { border-left-color: var(--warn); }
+  .note.warn .tag { color: var(--warn); }
+  .note.good { border-left-color: var(--ok); }
+  .note.good .tag { color: var(--ok); }
+
+  /* ---------- Tables ---------- */
+
+  .tablewrap { overflow-x: auto; margin: 1.5rem 0; border: 1px solid var(--rule); border-radius: 4px; }
+  table { border-collapse: collapse; width: 100%; min-width: 560px; background: var(--surface); font-size: 0.9rem; }
+  th, td { text-align: left; padding: 0.6rem 0.85rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th {
+    font-family: var(--f-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    background: var(--surface-2);
+    white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.mono, th.mono { font-family: var(--f-mono); font-size: 0.8rem; }
+  .tag-ok { color: var(--ok); font-weight: 600; }
+  .tag-no { color: var(--danger); font-weight: 600; }
+
+  /* ---------- Tool grid ---------- */
+
+  .toolgroup { margin-top: 2rem; }
+  .toolgroup > h3 { margin-top: 0; }
+  .tools {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 0.75rem;
+    margin-top: 0.9rem;
+  }
+  .tool {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 0.8rem 0.9rem;
+    display: flex;
+    gap: 0.7rem;
+    align-items: flex-start;
+  }
+  .chip {
+    flex: none;
+    width: 2.1rem;
+    height: 2.1rem;
+    border-radius: 5px;
+    display: grid;
+    place-items: center;
+    color: var(--tool, var(--accent));
+    background: color-mix(in oklab, var(--tool, var(--accent)) 16%, transparent);
+  }
+  .ico { width: 1.25rem; height: 1.25rem; display: block; }
+  .tool b { display: block; font-size: 0.94rem; line-height: 1.3; }
+  .tool small { display: block; color: var(--ink-2); font-size: 0.82rem; line-height: 1.45; margin-top: 0.15rem; }
+  .tool .where {
+    display: block;
+    font-family: var(--f-mono);
+    font-size: 0.7rem;
+    color: var(--ink-3);
+    margin-top: 0.35rem;
+    word-break: break-word;
+  }
+
+  /* ---------- Stage list ---------- */
+
+  .stages { list-style: none; padding: 0; margin: 1.5rem 0 0; display: flex; flex-direction: column; gap: 0; }
+  .stage {
+    display: grid;
+    grid-template-columns: 3.2rem minmax(0, 1fr);
+    gap: 1.1rem;
+    padding: 1.4rem 0;
+    border-top: 1px solid var(--rule);
+    max-width: none;
+  }
+  .stage:last-child { border-bottom: 1px solid var(--rule); }
+  .stage .n {
+    font-family: var(--f-mono);
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: var(--accent);
+    line-height: 1;
+    padding-top: 0.15rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .stage h3 { margin: 0 0 0.15rem; font-size: 1.15rem; }
+  .stage .meta { font-family: var(--f-mono); font-size: 0.72rem; color: var(--ink-3); margin: 0 0 0.6rem; }
+  .stage > div > * { max-width: 68ch; }
+  .stage pre, .stage .tablewrap { max-width: none; }
+
+  /* ---------- Details / glossary ---------- */
+
+  details {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 0.75rem 1rem;
+    margin: 0.6rem 0;
+  }
+  summary { cursor: pointer; font-weight: 600; }
+  details[open] summary { margin-bottom: 0.6rem; }
+  details p { margin: 0.4rem 0; font-size: 0.94rem; }
+
+  .gloss { display: grid; gap: 0; margin: 1.5rem 0 0; }
+  .gloss div {
+    display: grid;
+    grid-template-columns: minmax(0, 11rem) minmax(0, 1fr);
+    gap: 1rem;
+    padding: 0.7rem 0;
+    border-top: 1px solid var(--rule);
+  }
+  .gloss div:last-child { border-bottom: 1px solid var(--rule); }
+  .gloss dt { font-family: var(--f-mono); font-size: 0.85rem; color: var(--ink); font-weight: 600; }
+  .gloss dd { margin: 0; font-size: 0.92rem; color: var(--ink-2); }
+  @media (max-width: 620px) {
+    .gloss div { grid-template-columns: minmax(0, 1fr); gap: 0.2rem; }
+  }
+
+  footer {
+    border-top: 1px solid var(--rule);
+    padding: 2rem 1.5rem 3rem;
+    text-align: center;
+    color: var(--ink-3);
+    font-family: var(--f-mono);
+    font-size: 0.76rem;
+    line-height: 1.7;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <g id="g-stroke"></g>
+    <symbol id="i-react" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+      <circle cx="12" cy="12" r="2.1" fill="currentColor" stroke="none"/>
+      <ellipse cx="12" cy="12" rx="10" ry="4"/>
+      <ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(60 12 12)"/>
+      <ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(120 12 12)"/>
+    </symbol>
+    <symbol id="i-vite" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
+      <path d="M3 4l9 17 9-17-9 3z"/>
+      <path d="M12 9v6" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="i-node" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+      <path d="M12 2.5l8 4.6v9.8l-8 4.6-8-4.6V7.1z"/>
+      <path d="M9 15V9l6 6V9" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="i-npm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <rect x="2.5" y="6.5" width="19" height="11" rx="1.5"/>
+      <path d="M6 17V10h4v7M14 17V10h4v4" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="i-eslint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+      <path d="M12 2.5l8 4.6v9.8l-8 4.6-8-4.6V7.1z"/>
+      <path d="M12 7.6l4 2.3v4.2l-4 2.3-4-2.3V9.9z"/>
+    </symbol>
+    <symbol id="i-vitest" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+      <path d="M9 2.5v5.2L4.4 17A2 2 0 006.2 20h11.6a2 2 0 001.8-3L15 7.7V2.5"/>
+      <path d="M8 2.5h8" stroke-linecap="round"/>
+      <path d="M9 15.5l2 2 4-4" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="i-sonar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+      <path d="M3 20A17 17 0 0120 3"/>
+      <path d="M3 20A11.5 11.5 0 0114.5 8.5"/>
+      <path d="M3 20a6 6 0 016-6"/>
+    </symbol>
+    <symbol id="i-gitleaks" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+      <path d="M12 3.2s5.8 6.3 5.8 10.1a5.8 5.8 0 11-11.6 0C6.2 9.5 12 3.2 12 3.2z"/>
+      <path d="M4 4l16 16" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="i-trivy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+      <rect x="2.5" y="4" width="12" height="9" rx="1.2"/>
+      <path d="M2.5 8h12" />
+      <circle cx="15.5" cy="15" r="4.5"/>
+      <path d="M18.8 18.3L22 21.5" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="i-kubeconform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+      <path d="M6 2.5h8l4.5 4.5v14.5H6z"/>
+      <path d="M14 2.5V7h4.5"/>
+      <path d="M8.8 14.6l2.3 2.3 4.4-4.4" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="i-docker" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
+      <rect x="3.6" y="11" width="3.4" height="3.2"/>
+      <rect x="7.6" y="11" width="3.4" height="3.2"/>
+      <rect x="11.6" y="11" width="3.4" height="3.2"/>
+      <rect x="7.6" y="7.4" width="3.4" height="3.2"/>
+      <rect x="11.6" y="7.4" width="3.4" height="3.2"/>
+      <path d="M2 16.4c2 3 5.6 4.4 9.3 4.4 5.2 0 9.3-2.6 10.7-7.6-1.4-.8-3-.7-4 .1" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="i-nginx" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+      <path d="M12 2.5l8 4.6v9.8l-8 4.6-8-4.6V7.1z"/>
+      <path d="M9.2 16V8.6l5.6 6.8V8" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="i-alpine" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+      <path d="M2.5 19.5l6-10 3.2 5.2 2-3.2 7.8 8z"/>
+      <path d="M7 13.5l2.2-1.4" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="i-github" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+      <path d="M12 2.2A9.8 9.8 0 002.2 12c0 4.34 2.81 8.02 6.71 9.32.49.09.67-.21.67-.48v-1.68c-2.73.6-3.3-1.32-3.3-1.32-.45-1.14-1.09-1.44-1.09-1.44-.9-.61.07-.6.07-.6.99.07 1.51 1.02 1.51 1.02.88 1.51 2.3 1.07 2.86.82.09-.64.34-1.07.63-1.32-2.18-.25-4.47-1.09-4.47-4.85 0-1.07.38-1.95 1.01-2.64-.1-.25-.44-1.25.1-2.61 0 0 .83-.27 2.71 1.01a9.4 9.4 0 014.94 0c1.88-1.28 2.71-1.01 2.71-1.01.54 1.36.2 2.36.1 2.61.63.69 1.01 1.57 1.01 2.64 0 3.77-2.3 4.6-4.49 4.84.35.31.67.91.67 1.84v2.73c0 .27.18.58.68.48A9.81 9.81 0 0021.8 12 9.8 9.8 0 0012 2.2z"/>
+    </symbol>
+    <symbol id="i-actions" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+      <circle cx="12" cy="12" r="3.4"/>
+      <path d="M5.1 16.5A8 8 0 0110.4 4.2"/>
+      <path d="M9.4 3.1l1.2 1.3-1.4 1.1"/>
+      <path d="M18.9 7.5A8 8 0 0113.6 19.8"/>
+      <path d="M14.6 20.9l-1.2-1.3 1.4-1.1"/>
+    </symbol>
+    <symbol id="i-oidc" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+      <circle cx="7.5" cy="12" r="3.6"/>
+      <path d="M11.1 12H21"/>
+      <path d="M17.5 12v3.2M20.2 12v2.4"/>
+    </symbol>
+    <symbol id="i-aws" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M6.8 11.2a3 3 0 01.4-6 4.6 4.6 0 018.6 1.3 3 3 0 01-.6 5.9"/>
+      <path d="M2.4 15.6c5.6 3.4 13.6 3.4 19.2 0"/>
+      <path d="M18.2 15.6l3.4 1.4-1.2 3.2"/>
+    </symbol>
+    <symbol id="i-iam" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+      <path d="M12 2.6l7.5 3.2v5.8c0 4.4-3 8.2-7.5 9.8-4.5-1.6-7.5-5.4-7.5-9.8V5.8z"/>
+      <circle cx="12" cy="10.2" r="2.1"/>
+      <path d="M8.5 16.4a3.8 3.8 0 017 0"/>
+    </symbol>
+    <symbol id="i-sts" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+      <circle cx="12" cy="13.5" r="7.4"/>
+      <path d="M12 9.8v3.7l2.4 2.1"/>
+      <path d="M9.6 2.6h4.8M12 2.6v3.5"/>
+    </symbol>
+    <symbol id="i-ecr" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+      <rect x="3" y="3.5" width="18" height="5" rx="1"/>
+      <rect x="3" y="10" width="18" height="5" rx="1"/>
+      <rect x="3" y="16.5" width="18" height="4" rx="1"/>
+      <path d="M6.4 6h.01M6.4 12.5h.01M6.4 18.5h.01" stroke-linecap="round" stroke-width="2"/>
+    </symbol>
+    <symbol id="i-k8s" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">
+      <polygon points="12,2.6 19.4,6.2 21.2,14.1 16.1,20.5 7.9,20.5 2.8,14.1 4.6,6.2"/>
+      <path d="M12 12V6.6M12 12l5.6 2.9M12 12l-5.6 2.9"/>
+      <circle cx="12" cy="12" r="2.4"/>
+    </symbol>
+    <symbol id="i-kubectl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+      <rect x="2.5" y="4" width="19" height="16" rx="2"/>
+      <path d="M6.5 9.5l3 3-3 3M12.5 15.5h5" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="i-eks" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">
+      <path d="M12 2.4l8.4 4.2v10.8L12 21.6 3.6 17.4V6.6z"/>
+      <path d="M12 8.4v7.2M12 12l4.4-2.4M12 12l-4.4 2.4" stroke-linecap="round"/>
+      <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/>
+    </symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+      <rect x="4" y="10" width="16" height="10.5" rx="2"/>
+      <path d="M7.8 10V7.4a4.2 4.2 0 018.4 0V10"/>
+    </symbol>
+  </defs>
+</svg>
+
+<header class="masthead">
+  <div class="masthead-inner">
+    <p class="kicker">github.com/vikki-iam/eks-demo &middot; frontend</p>
+    <h1>The Keyless Pipeline</h1>
+    <p class="lede">
+      How a React app gets from <code>git push</code> on your laptop to running pods on
+      AWS EKS &mdash; automatically, in about ten minutes, with
+      <strong>no AWS password, key, or token stored anywhere</strong>.
+      Written for people who have never touched a pipeline before.
+    </p>
+    <span class="stamp">
+      <svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg>
+      Zero stored credentials
+    </span>
+    <p class="lede" style="font-size:0.95rem">
+      Want to <em>build</em> this yourself rather than read about it?
+      <a href="https://claude.ai/code/artifact/3ef13a50-7073-46a2-9099-b606b30b4a84"><strong>Ship It Yourself</strong></a>
+      is the companion workbook &mdash; 36 tickable steps from an empty AWS account to a live deployment.
+    </p>
+    <dl class="facts">
+      <div><dt>Cloud</dt><dd>AWS &middot; ap-south-1</dd></div>
+      <div><dt>Cluster</dt><dd>ai-interview (EKS)</dd></div>
+      <div><dt>Namespace</dt><dd>demo</dd></div>
+      <div><dt>Registry</dt><dd>ECR &middot; ai-interview-dev-platform</dd></div>
+      <div><dt>Deploys from</dt><dd>master only</dd></div>
+      <div><dt>Auth</dt><dd>GitHub OIDC &rarr; IAM role</dd></div>
+    </dl>
+  </div>
+</header>
+
+<div class="wrap">
+  <nav class="toc" aria-label="Contents">
+    <p class="kicker">Contents</p>
+    <ol>
+      <li><a href="#what"><span>01</span> What this is</a></li>
+      <li><a href="#flow"><span>02</span> The whole flow</a></li>
+      <li><a href="#tools"><span>03</span> The toolbox</a></li>
+      <li><a href="#keyless"><span>04</span> No hardcoded creds</a></li>
+      <li><a href="#pipeline"><span>05</span> Stage by stage</a></li>
+      <li><a href="#gates"><span>06</span> Security gates</a></li>
+      <li><a href="#iam"><span>07</span> IAM &amp; least privilege</a></li>
+      <li><a href="#runtime"><span>08</span> Config without secrets</a></li>
+      <li><a href="#container"><span>09</span> Inside the container</a></li>
+      <li><a href="#k8s"><span>10</span> On the cluster</a></li>
+      <li><a href="#local"><span>11</span> Run it locally</a></li>
+      <li><a href="#setup"><span>12</span> Set it up yourself</a></li>
+      <li><a href="#trouble"><span>13</span> When it breaks</a></li>
+      <li><a href="#glossary"><span>14</span> Glossary</a></li>
+    </ol>
+  </nav>
+
+  <main>
+<section id="what">
+  <h2>01 &nbsp;What this is</h2>
+  <p class="srcref">Read this first. Everything else is detail.</p>
+
+  <p>
+    This repository holds the <strong>frontend</strong> of an AI Interview Platform: the part
+    that runs in a person's browser. It is a React application &mdash; a folder of JavaScript
+    files that gets compiled into plain HTML, CSS and JS, then served by a small web server
+    called nginx.
+  </p>
+  <p>
+    On its own, that is unremarkable. What this repository is really about is
+    <strong>everything that happens after you type <code>git push</code></strong>: the code is
+    checked, tested, scanned for secrets and known vulnerabilities, packed into a container
+    image, pushed to Amazon's private registry, and rolled out onto a Kubernetes cluster
+    running in AWS &mdash; without a human touching a server, and without a single AWS
+    credential being written down anywhere.
+  </p>
+
+  <div class="note good">
+    <span class="tag">The one idea to take away</span>
+    <p>
+      A pipeline that stores an AWS access key is a pipeline with a permanent liability sitting
+      in it. This one has none. GitHub proves who it is with a <em>signed, expiring token</em>,
+      AWS checks that proof against a rule it holds, and hands back credentials that die within
+      the hour. Nothing to leak, nothing to rotate, nothing to forget.
+    </p>
+  </div>
+
+  <h3>The vocabulary, in one table</h3>
+  <p>
+    If some of the words below are new, that is expected. Skim this now and come back to the
+    <a href="#glossary">glossary</a> whenever a term stops making sense.
+  </p>
+
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>Word</th><th>What it actually means here</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="mono">CI</td><td>Continuous Integration &mdash; every push gets built and tested automatically, so a broken change is caught in minutes rather than at release time.</td></tr>
+        <tr><td class="mono">CD</td><td>Continuous Deployment &mdash; if the checks pass on <code>master</code>, the change goes live on its own. No ticket, no manual copy.</td></tr>
+        <tr><td class="mono">Container</td><td>Your app plus everything it needs to run, sealed into one file. It behaves the same on your laptop and in AWS.</td></tr>
+        <tr><td class="mono">Image</td><td>The sealed file itself. A running copy of an image is a container.</td></tr>
+        <tr><td class="mono">Registry (ECR)</td><td>A private warehouse for images inside your AWS account.</td></tr>
+        <tr><td class="mono">Kubernetes</td><td>The system that runs containers across many machines, restarts them when they die, and replaces them one at a time during an update.</td></tr>
+        <tr><td class="mono">EKS</td><td>Kubernetes, operated by AWS so you don't have to run the control plane yourself.</td></tr>
+        <tr><td class="mono">IAM</td><td>AWS's permission system: who is allowed to do what.</td></tr>
+        <tr><td class="mono">OIDC</td><td>The trust mechanism that lets GitHub prove its identity to AWS without a shared password.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>What lives where</h3>
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>Path</th><th>Role</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="mono">src/</td><td>The React application &mdash; pages, components, API client, auth context.</td></tr>
+        <tr><td class="mono">src/test/</td><td>Unit tests, run by Vitest.</td></tr>
+        <tr><td class="mono">vite.config.js</td><td>Build settings, dev-server proxy, test and coverage settings.</td></tr>
+        <tr><td class="mono">Dockerfile</td><td>Two-stage recipe: build the bundle with Node, then serve it with nginx.</td></tr>
+        <tr><td class="mono">docker-entrypoint.sh</td><td>Runs at container start; writes the runtime config the browser reads.</td></tr>
+        <tr><td class="mono">nginx.conf</td><td>Web-server config: port 3000, health endpoint, cache rules, security headers.</td></tr>
+        <tr><td class="mono">k8s/</td><td>Three Kubernetes manifests: Deployment, Service, ConfigMap.</td></tr>
+        <tr><td class="mono">.github/workflows/ci.yml</td><td>The pipeline. Four jobs. This is the file this page is mostly about.</td></tr>
+        <tr><td class="mono">sonar-project.properties</td><td>Tells SonarCloud where the source, tests and coverage report are.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="flow">
+  <h2>02 &nbsp;The whole flow</h2>
+  <p class="srcref">.github/workflows/ci.yml</p>
+
+  <p>
+    One push starts four jobs. Three of them run at the same time and check different things.
+    The fourth &mdash; the one that touches AWS &mdash; only starts if all three came back green,
+    and only on the <code>master</code> branch.
+  </p>
+
+  <figure class="plate extra-wide">
+    <div class="scroll">
+      <svg viewBox="0 0 1120 520" role="img"
+           aria-label="A push to GitHub starts three parallel check jobs; when all three pass on master, a deploy job exchanges an OIDC token for temporary AWS credentials, scans and pushes the image to ECR, applies it to EKS, verifies it, and rolls back automatically on failure.">
+        <defs>
+          <marker id="p1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 1l9 4-9 4z" fill="#33484D"/>
+          </marker>
+          <marker id="p1b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 1l9 4-9 4z" fill="#4FD1C5"/>
+          </marker>
+          <marker id="p1c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 1l9 4-9 4z" fill="#E58179"/>
+          </marker>
+        </defs>
+
+        <!-- band 1 -->
+        <rect class="box" x="24" y="96" width="150" height="58" rx="3"/>
+        <text class="lbl" x="99" y="120" text-anchor="middle">Developer</text>
+        <text class="sub" x="99" y="137" text-anchor="middle">your laptop</text>
+
+        <rect class="box" x="244" y="96" width="170" height="58" rx="3"/>
+        <text class="lbl" x="329" y="120" text-anchor="middle">GitHub</text>
+        <text class="sub" x="329" y="137" text-anchor="middle">repo + secrets</text>
+
+        <path class="edge" d="M174 125 H236" marker-end="url(#p1a)"/>
+        <text class="elab" x="205" y="117" text-anchor="middle">git push</text>
+
+        <rect class="box" x="474" y="24" width="250" height="58" rx="3"/>
+        <text class="lbl" x="490" y="48">app</text>
+        <text class="sub" x="490" y="66">lint &middot; test &middot; build &middot; Sonar</text>
+
+        <rect class="box" x="474" y="96" width="250" height="58" rx="3"/>
+        <text class="lbl" x="490" y="120">secrets</text>
+        <text class="sub" x="490" y="138">Gitleaks scans full history</text>
+
+        <rect class="box" x="474" y="168" width="250" height="58" rx="3"/>
+        <text class="lbl" x="490" y="192">manifests</text>
+        <text class="sub" x="490" y="210">kubeconform &minus;strict</text>
+
+        <path class="edge" d="M414 125 H444 V53 H466" marker-end="url(#p1a)"/>
+        <path class="edge" d="M414 125 H466" marker-end="url(#p1a)"/>
+        <path class="edge" d="M414 125 H444 V197 H466" marker-end="url(#p1a)"/>
+
+        <text class="elab" x="599" y="252" text-anchor="middle">three jobs, in parallel &mdash; each can stop the run</text>
+
+        <path class="edge-a" d="M724 53 H759 V125 H786" marker-end="url(#p1b)"/>
+        <path class="edge-a" d="M724 125 H786" marker-end="url(#p1b)"/>
+        <path class="edge-a" d="M724 197 H759 V125 H786" marker-end="url(#p1b)"/>
+
+        <rect class="box-a" x="794" y="96" width="190" height="58" rx="3"/>
+        <text class="lbl" x="889" y="120" text-anchor="middle">deploy</text>
+        <text class="sub" x="889" y="137" text-anchor="middle">master push &middot; manual</text>
+        <text class="acc" x="889" y="84" text-anchor="middle">all three green</text>
+
+        <!-- zoom bracket -->
+        <path class="zone" d="M794 154 L24 300"/>
+        <path class="zone" d="M984 154 L1096 300"/>
+        <rect class="zone" x="24" y="300" width="1072" height="200" rx="4"/>
+        <text class="zonelbl" x="44" y="322">INSIDE THE DEPLOY JOB</text>
+
+        <!-- band 2 -->
+        <rect class="box-a" x="48" y="336" width="160" height="58" rx="3"/>
+        <text class="lbl-s" x="128" y="360" text-anchor="middle">OIDC token</text>
+        <text class="sub" x="128" y="377" text-anchor="middle">signed by GitHub</text>
+
+        <rect class="box-a" x="264" y="336" width="160" height="58" rx="3"/>
+        <text class="lbl-s" x="344" y="360" text-anchor="middle">AWS STS</text>
+        <text class="sub" x="344" y="377" text-anchor="middle">1-hour creds</text>
+
+        <rect class="box" x="480" y="336" width="160" height="58" rx="3"/>
+        <text class="lbl-s" x="560" y="360" text-anchor="middle">Trivy</text>
+        <text class="sub" x="560" y="377" text-anchor="middle">CRITICAL = stop</text>
+
+        <rect class="box" x="696" y="336" width="160" height="58" rx="3"/>
+        <text class="lbl-s" x="776" y="360" text-anchor="middle">ECR</text>
+        <text class="sub" x="776" y="377" text-anchor="middle">push :&lt;commit sha&gt;</text>
+
+        <rect class="box" x="912" y="336" width="160" height="58" rx="3"/>
+        <text class="lbl-s" x="992" y="360" text-anchor="middle">EKS</text>
+        <text class="sub" x="992" y="377" text-anchor="middle">kubectl apply</text>
+
+        <path class="edge-a" d="M208 365 H256" marker-end="url(#p1b)"/>
+        <text class="elab" x="232" y="357" text-anchor="middle">presents</text>
+        <path class="edge-a" d="M424 365 H472" marker-end="url(#p1b)"/>
+        <text class="elab" x="448" y="357" text-anchor="middle">creds</text>
+        <path class="edge" d="M640 365 H688" marker-end="url(#p1a)"/>
+        <text class="elab" x="664" y="357" text-anchor="middle">clean</text>
+        <path class="edge" d="M856 365 H904" marker-end="url(#p1a)"/>
+        <text class="elab" x="880" y="357" text-anchor="middle">image</text>
+
+        <rect class="box" x="628" y="424" width="250" height="48" rx="3"/>
+        <text class="lbl-s" x="753" y="444" text-anchor="middle">verify</text>
+        <text class="sub" x="753" y="461" text-anchor="middle">curl pod &rarr; http://frontend/</text>
+
+        <path class="edge" d="M992 394 V408 H753 V416" marker-end="url(#p1a)"/>
+        <text class="elab" x="880" y="404" text-anchor="middle">rollout status, 5 min</text>
+
+        <rect class="box-d" x="928" y="424" width="144" height="48" rx="3"/>
+        <text class="lbl-s" x="1000" y="444" text-anchor="middle">rollout undo</text>
+        <text class="sub" x="1000" y="461" text-anchor="middle">automatic</text>
+
+        <path class="edge-d" d="M878 448 H920" marker-end="url(#p1c)"/>
+        <text class="elab-d" x="899" y="440" text-anchor="middle">fails</text>
+
+        <text class="elab-a" x="612" y="448" text-anchor="end">passes &rarr; live</text>
+      </svg>
+    </div>
+    <figcaption>
+      <b>The whole pipeline.</b> A pull request runs the top band only &mdash; it never reaches AWS.
+      The deploy job is drawn expanded because that is where every credential decision happens:
+      the token is obtained, exchanged, used, and discarded inside those five boxes.
+    </figcaption>
+  </figure>
+
+  <h3>Reading the diagram in plain words</h3>
+  <ol>
+    <li>You push a commit, or open a pull request.</li>
+    <li>GitHub starts a fresh, empty Ubuntu machine (a <em>runner</em>) and runs three jobs on it in parallel.</li>
+    <li><strong>app</strong> installs dependencies, checks code style, runs tests with coverage, builds the bundle, and uploads the result to SonarCloud.</li>
+    <li><strong>secrets</strong> scans the entire git history for anything that looks like a password or key.</li>
+    <li><strong>manifests</strong> checks the Kubernetes YAML against the real Kubernetes schemas, so a typo is caught before the cluster sees it.</li>
+    <li>If <em>any</em> of those fail, the run stops. Nothing is built, nothing is deployed.</li>
+    <li>If all three pass <em>and</em> the branch is <code>master</code>, the deploy job starts. It asks GitHub for an identity token, trades it with AWS for temporary credentials, scans the image, pushes it, applies it to the cluster, and waits for the new pods to be healthy.</li>
+    <li>If the rollout stalls or the smoke test fails, it undoes the rollout automatically and prints why.</li>
+  </ol>
+
+  <div class="note">
+    <span class="tag">Why parallel, then a gate</span>
+    <p>
+      Running the three checks at the same time means feedback in about three minutes instead
+      of nine. Making the deploy job <code>needs: [app, secrets, manifests]</code> means speed
+      never costs you safety &mdash; the fast path still cannot skip a single check.
+    </p>
+  </div>
+</section>
+
+<section id="tools">
+  <h2>03 &nbsp;The toolbox</h2>
+  <p class="srcref">Every tool this project uses, what it is, and where it appears</p>
+
+  <p>
+    Twenty-two moving parts sounds like a lot. It isn't, once you see that each one answers
+    exactly one question. Grouped below by the question they answer.
+  </p>
+
+  <div class="toolgroup">
+    <h3>Build &mdash; "how does source become a website?"</h3>
+    <div class="tools">
+      <div class="tool">
+        <span class="chip" style="--tool:#35A8C0"><svg class="ico" aria-hidden="true"><use href="#i-react"/></svg></span>
+        <div>
+          <b>React 18</b>
+          <small>The UI library. You describe what the screen should look like for a given state; React updates the browser to match.</small>
+          <span class="where">src/ &middot; pages, components, hooks</span>
+        </div>
+      </div>
+      <div class="tool">
+        <span class="chip" style="--tool:#9A62E0"><svg class="ico" aria-hidden="true"><use href="#i-vite"/></svg></span>
+        <div>
+          <b>Vite 6</b>
+          <small>The build tool. Runs a fast dev server while you work, and compiles everything into a small <code>dist/</code> folder for production.</small>
+          <span class="where">vite.config.js &middot; npm run dev / build</span>
+        </div>
+      </div>
+      <div class="tool">
+        <span class="chip" style="--tool:#4E9A3E"><svg class="ico" aria-hidden="true"><use href="#i-node"/></svg></span>
+        <div>
+          <b>Node.js 22</b>
+          <small>The JavaScript runtime that Vite, ESLint and the tests run on. It exists only at build time &mdash; the shipped image has no Node in it.</small>
+          <span class="where">actions/setup-node &middot; Dockerfile build stage</span>
+        </div>
+      </div>
+      <div class="tool">
+        <span class="chip" style="--tool:#C63A34"><svg class="ico" aria-hidden="true"><use href="#i-npm"/></svg></span>
+        <div>
+          <b>npm &amp; the lockfile</b>
+          <small><code>npm ci</code> installs exactly the versions written in <code>package-lock.json</code> and fails if they don't match &mdash; so CI builds what you tested.</small>
+          <span class="where">package-lock.json &middot; npm ci</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toolgroup">
+    <h3>Quality &mdash; "is this code any good?"</h3>
+    <div class="tools">
+      <div class="tool">
+        <span class="chip" style="--tool:#6A5AD6"><svg class="ico" aria-hidden="true"><use href="#i-eslint"/></svg></span>
+        <div>
+          <b>ESLint 9</b>
+          <small>Reads the code without running it and flags mistakes and bad patterns. Configured with <code>--max-warnings 0</code>: even a warning fails the build.</small>
+          <span class="where">eslint.config.js &middot; npm run lint</span>
+        </div>
+      </div>
+      <div class="tool">
+        <span class="chip" style="--tool:#B8890B"><svg class="ico" aria-hidden="true"><use href="#i-vitest"/></svg></span>
+        <div>
+          <b>Vitest + Testing Library</b>
+          <small>Runs unit tests in a simulated browser (jsdom) and measures how much of the code they touched.</small>
+          <span class="where">src/test/ &middot; npm run test:coverage</span>
+        </div>
+      </div>
+      <div class="tool">
+        <span class="chip" style="--tool:#2C8AC7"><svg class="ico" aria-hidden="true"><use href="#i-sonar"/></svg></span>
+        <div>
+          <b>SonarCloud</b>
+          <small>Hosted static analysis. Tracks bugs, code smells, duplication and coverage over time, and comments on pull requests.</small>
+          <span class="where">sonar-project.properties &middot; SONAR_TOKEN</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toolgroup">
+    <h3>Security &mdash; "what could hurt us?"</h3>
+    <div class="tools">
+      <div class="tool">
+        <span class="chip" style="--tool:#C74B3E"><svg class="ico" aria-hidden="true"><use href="#i-gitleaks"/></svg></span>
+        <div>
+          <b>Gitleaks</b>
+          <small>Scans the <em>entire</em> git history for committed secrets &mdash; AWS keys, tokens, private keys. Deleting a secret in a later commit does not hide it; Gitleaks still finds it.</small>
+          <span class="where">ci.yml &middot; job: secrets &middot; fetch-depth: 0</span>
+        </div>
+      </div>
+      <div class="tool">
+        <span class="chip" style="--tool:#1B93A6"><svg class="ico" aria-hidden="true"><use href="#i-trivy"/></svg></span>
+        <div>
+          <b>Trivy</b>
+          <small>Scans the built image for known vulnerabilities. Set to fail on <code>CRITICAL</code> only, ignoring issues with no fix available yet.</small>
+          <span class="where">ci.yml &middot; runs before the ECR push</span>
+        </div>
+      </div>
+      <div class="tool">
+        <span class="chip" style="--tool:#5B8494"><svg class="ico" aria-hidden="true"><use href="#i-kubeconform"/></svg></span>
+        <div>
+          <b>kubeconform</b>
+          <small>Validates the Kubernetes YAML against the official schemas in strict mode, so an unknown field or a typo fails in CI rather than on the cluster.</small>
+          <span class="where">ci.yml &middot; job: manifests</span>
+        </div>
+      </div>
+      <div class="tool">
+        <span class="chip" style="--tool:#D9752A"><svg class="ico" aria-hidden="true"><use href="#i-oidc"/></svg></span>
+        <div>
+          <b>OpenID Connect (OIDC)</b>
+          <small>The reason there is no AWS key in this repo. GitHub issues a short-lived signed token; AWS verifies it and hands back temporary credentials.</small>
+          <span class="where">permissions: id-token: write</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toolgroup">
+    <h3>Package &mdash; "how do we ship it?"</h3>
+    <div class="tools">
+      <div class="tool">
+        <span class="chip" style="--tool:#2E8FE0"><svg class="ico" aria-hidden="true"><use href="#i-docker"/></svg></span>
+        <div>
+          <b>Docker</b>
+          <small>Builds the image. This one is multi-stage: a Node stage compiles the app, and only the compiled files are copied into the final image.</small>
+          <span class="where">Dockerfile &middot; .dockerignore</span>
+        </div>
+      </div>
+      <div class="tool">
+        <span class="chip" style="--tool:#14944F"><svg class="ico" aria-hidden="true"><use href="#i-nginx"/></svg></span>
+        <div>
+          <b>nginx</b>
+          <small>The web server inside the image. Serves the files on port 3000, answers <code>/healthz</code>, sets cache and security headers, and falls back to <code>index.html</code> for client-side routes.</small>
+          <span class="where">nginx.conf</span>
+        </div>
+      </div>
+      <div class="tool">
+        <span class="chip" style="--tool:#0D6E9E"><svg class="ico" aria-hidden="true"><use href="#i-alpine"/></svg></span>
+        <div>
+          <b>Alpine Linux</b>
+          <small>The tiny base OS both stages build on. Fewer packages means a smaller image and a smaller attack surface for Trivy to find problems in.</small>
+          <span class="where">node:22-alpine &middot; nginx:alpine</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toolgroup">
+    <h3>Automation &mdash; "who does all this, and when?"</h3>
+    <div class="tools">
+      <div class="tool">
+        <span class="chip" style="--tool:#57646B"><svg class="ico" aria-hidden="true"><use href="#i-github"/></svg></span>
+        <div>
+          <b>GitHub</b>
+          <small>Hosts the code, the pull requests, the encrypted secrets, and the <code>production</code> environment that guards the deploy job.</small>
+          <span class="where">github.com/vikki-iam/eks-demo</span>
+        </div>
+      </div>
+      <div class="tool">
+        <span class="chip" style="--tool:#3B7DDB"><svg class="ico" aria-hidden="true"><use href="#i-actions"/></svg></span>
+        <div>
+          <b>GitHub Actions</b>
+          <small>The CI/CD engine. Reads <code>ci.yml</code>, starts clean virtual machines, runs the jobs, and throws the machines away afterwards.</small>
+          <span class="where">.github/workflows/ci.yml</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toolgroup">
+    <h3>Cloud &mdash; "where does it actually run?"</h3>
+    <div class="tools">
+      <div class="tool">
+        <span class="chip" style="--tool:#E8890C"><svg class="ico" aria-hidden="true"><use href="#i-aws"/></svg></span>
+        <div>
+          <b>AWS</b>
+          <small>The cloud account everything lives in. Region <code>ap-south-1</code> (Mumbai).</small>
+          <span class="where">env.AWS_REGION</span>
+        </div>
+      </div>
+      <div class="tool">
+        <span class="chip" style="--tool:#C8384F"><svg class="ico" aria-hidden="true"><use href="#i-iam"/></svg></span>
+        <div>
+          <b>IAM</b>
+          <small>AWS's permission system. Holds the <em>role</em> the pipeline assumes and the <em>trust policy</em> that decides which GitHub workflow is allowed to assume it.</small>
+          <span class="where">secrets.AWS_DEPLOY_ROLE_ARN</span>
+        </div>
+      </div>
+      <div class="tool">
+        <span class="chip" style="--tool:#C8384F"><svg class="ico" aria-hidden="true"><use href="#i-sts"/></svg></span>
+        <div>
+          <b>STS</b>
+          <small>Security Token Service &mdash; the AWS service that inspects GitHub's token and issues the temporary credentials. Nothing it returns lives longer than the job.</small>
+          <span class="where">AssumeRoleWithWebIdentity</span>
+        </div>
+      </div>
+      <div class="tool">
+        <span class="chip" style="--tool:#E8890C"><svg class="ico" aria-hidden="true"><use href="#i-ecr"/></svg></span>
+        <div>
+          <b>Amazon ECR</b>
+          <small>The private image registry. Every image is tagged with the exact commit SHA, so you can always tell which line of code is running.</small>
+          <span class="where">ai-interview-dev-platform/frontend</span>
+        </div>
+      </div>
+      <div class="tool">
+        <span class="chip" style="--tool:#3A6FE0"><svg class="ico" aria-hidden="true"><use href="#i-eks"/></svg></span>
+        <div>
+          <b>Amazon EKS</b>
+          <small>Managed Kubernetes. AWS runs the control plane; your pods run on the worker nodes.</small>
+          <span class="where">cluster: ai-interview</span>
+        </div>
+      </div>
+      <div class="tool">
+        <span class="chip" style="--tool:#3A6FE0"><svg class="ico" aria-hidden="true"><use href="#i-k8s"/></svg></span>
+        <div>
+          <b>Kubernetes objects</b>
+          <small>Deployment (how many copies, which image), Service (a stable address), ConfigMap (non-secret settings).</small>
+          <span class="where">k8s/deployment.yaml, service.yaml, configmap.yaml</span>
+        </div>
+      </div>
+      <div class="tool">
+        <span class="chip" style="--tool:#3A6FE0"><svg class="ico" aria-hidden="true"><use href="#i-kubectl"/></svg></span>
+        <div>
+          <b>kubectl</b>
+          <small>The command-line client for Kubernetes. The pipeline uses it to apply the manifests, watch the rollout, verify, and undo.</small>
+          <span class="where">ci.yml &middot; deploy steps</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+<section id="keyless">
+  <h2>04 &nbsp;No hardcoded credentials</h2>
+  <p class="srcref">The part that matters most &mdash; read it twice</p>
+
+  <p>
+    To deploy to AWS, something has to prove it is allowed to. The obvious way is to create an
+    AWS user, generate an access key, and paste it into GitHub. Millions of pipelines do exactly
+    that. It works, and it is the single most common way cloud accounts get taken over.
+  </p>
+  <p>
+    The problem is not that the key is weak. It is that the key <em>exists at rest</em>: written
+    into a settings page, copied into someone's notes, present in a backup, valid at 3 a.m. six
+    months after the person who made it left. A secret that never expires is a secret you will
+    eventually lose track of.
+  </p>
+
+  <figure class="plate">
+    <div class="scroll">
+      <svg viewBox="0 0 1120 400" role="img"
+           aria-label="Comparison: with static access keys a permanent key exists in both GitHub and AWS; with OIDC no key is stored anywhere and only a short-lived signed token crosses the wire.">
+        <defs>
+          <marker id="p2a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 1l9 4-9 4z" fill="#E58179"/>
+          </marker>
+          <marker id="p2b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 1l9 4-9 4z" fill="#4FD1C5"/>
+          </marker>
+        </defs>
+
+        <text class="dng" x="24" y="40">THE COMMON WAY &mdash; NOT USED HERE</text>
+        <rect class="zone" x="24" y="56" width="520" height="312" rx="4"/>
+
+        <g stroke="#E58179" stroke-width="1.6" fill="none" stroke-linecap="round">
+          <circle cx="100" cy="100" r="5.5"/>
+          <path d="M105.5 100 H130 M122 100 V106 M128 100 V105"/>
+          <circle cx="376" cy="100" r="5.5"/>
+          <path d="M381.5 100 H406 M398 100 V106 M404 100 V105"/>
+        </g>
+
+        <rect class="box-d" x="56" y="120" width="180" height="64" rx="3"/>
+        <text class="lbl-s" x="146" y="146" text-anchor="middle">GitHub secrets</text>
+        <text class="sub" x="146" y="164" text-anchor="middle">AKIA… + secret key</text>
+
+        <rect class="box-d" x="332" y="120" width="180" height="64" rx="3"/>
+        <text class="lbl-s" x="422" y="146" text-anchor="middle">AWS IAM user</text>
+        <text class="sub" x="422" y="164" text-anchor="middle">same key, stored</text>
+
+        <path class="edge-d" d="M236 152 H324" marker-end="url(#p2a)"/>
+        <text class="elab-d" x="280" y="144" text-anchor="middle">valid forever</text>
+
+        <text class="sub" x="56" y="226">— the key is copied by hand, at least once</text>
+        <text class="sub" x="56" y="250">— it now exists in two places, permanently</text>
+        <text class="sub" x="56" y="274">— it rotates only if a human remembers to</text>
+        <text class="sub" x="56" y="298">— a leaked copy keeps working until revoked</text>
+        <text class="sub" x="56" y="334">— any fork, log, or screenshot can expose it</text>
+
+        <text class="acc" x="576" y="40">THIS REPOSITORY</text>
+        <rect class="zone" x="576" y="56" width="520" height="312" rx="4"/>
+
+        <rect class="box-a" x="608" y="120" width="180" height="64" rx="3"/>
+        <text class="lbl-s" x="698" y="146" text-anchor="middle">GitHub Actions</text>
+        <text class="sub" x="698" y="164" text-anchor="middle">nothing stored</text>
+
+        <rect class="box-a" x="884" y="120" width="180" height="64" rx="3"/>
+        <text class="lbl-s" x="974" y="146" text-anchor="middle">AWS IAM role</text>
+        <text class="sub" x="974" y="164" text-anchor="middle">nothing stored</text>
+
+        <path class="edge-a" d="M788 152 H876" marker-end="url(#p2b)"/>
+        <rect x="800" y="136" width="72" height="32" rx="16" fill="#0C1518" stroke="#4FD1C5" stroke-width="1.2" stroke-dasharray="4 3"/>
+        <text class="acc" x="836" y="156" text-anchor="middle">token</text>
+        <text class="elab-a" x="836" y="112" text-anchor="middle">signed &middot; expires in minutes</text>
+
+        <text class="sub" x="608" y="226">— nothing is copied, because nothing exists</text>
+        <text class="sub" x="608" y="250">— no key at rest, in either system</text>
+        <text class="sub" x="608" y="274">— rotation is automatic: every run is new</text>
+        <text class="sub" x="608" y="298">— a stolen token is dead before it is useful</text>
+        <text class="sub" x="608" y="334">— it only works from this repo, on this branch</text>
+
+        <text class="elab" x="560" y="390" text-anchor="middle">the difference is what sits still: a key on the left, nothing on the right</text>
+      </svg>
+    </div>
+    <figcaption>
+      <b>The same job, two trust models.</b> On the left the red key is drawn twice because it
+      genuinely lives in two systems at once. On the right there is no key to draw &mdash; only a
+      dashed token in flight, which is gone by the time the run ends.
+    </figcaption>
+  </figure>
+
+  <h3>How the exchange actually works</h3>
+  <p>
+    OIDC (OpenID Connect) is the same idea as "Sign in with Google", turned around. GitHub acts
+    as the identity provider. AWS is told, once, "I trust tokens signed by GitHub" &mdash; and
+    then, more importantly, "but only if the token says it came from <em>this</em> repository."
+  </p>
+
+  <figure class="plate">
+    <div class="scroll">
+      <svg viewBox="0 0 1120 420" role="img"
+           aria-label="Five-step exchange: the runner requests an OIDC token from GitHub, sends it to AWS STS with the role ARN, STS verifies the signature against the OIDC provider and checks the trust policy conditions, then returns temporary credentials.">
+        <defs>
+          <marker id="p3a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 1l9 4-9 4z" fill="#4FD1C5"/>
+          </marker>
+        </defs>
+
+        <rect class="box" x="60" y="26" width="240" height="48" rx="3"/>
+        <text class="lbl-s" x="180" y="48" text-anchor="middle">GitHub Actions runner</text>
+        <text class="sub" x="180" y="65" text-anchor="middle">ubuntu-latest, disposable</text>
+
+        <rect class="box" x="820" y="26" width="240" height="48" rx="3"/>
+        <text class="lbl-s" x="940" y="48" text-anchor="middle">AWS STS</text>
+        <text class="sub" x="940" y="65" text-anchor="middle">in your account</text>
+
+        <line class="life" x1="180" y1="76" x2="180" y2="392"/>
+        <line class="life" x1="940" y1="76" x2="940" y2="392"/>
+
+        <g fill="#4FD1C5">
+          <circle cx="30" cy="125" r="11"/><circle cx="30" cy="182" r="11"/>
+          <circle cx="30" cy="240" r="11"/><circle cx="30" cy="300" r="11"/>
+          <circle cx="30" cy="358" r="11"/>
+        </g>
+        <g class="numbadge" text-anchor="middle">
+          <text x="30" y="129">1</text><text x="30" y="186">2</text>
+          <text x="30" y="244">3</text><text x="30" y="304">4</text>
+          <text x="30" y="362">5</text>
+        </g>
+
+        <path class="edge-a" d="M180 112 H244 V138 H188" marker-end="url(#p3a)"/>
+        <text class="lbl-s" x="262" y="120">runner asks GitHub for an identity token</text>
+        <text class="sub" x="262" y="140">allowed only because the job declares permissions: id-token: write</text>
+
+        <path class="edge-a" d="M182 182 H932" marker-end="url(#p3a)"/>
+        <text class="lbl-s" x="556" y="174" text-anchor="middle">AssumeRoleWithWebIdentity( token, role ARN )</text>
+
+        <path class="edge-a" d="M940 227 H1004 V253 H948" marker-end="url(#p3a)"/>
+        <text class="lbl-s" x="928" y="235" text-anchor="end">is the signature real?</text>
+        <text class="sub" x="928" y="255" text-anchor="end">checked against token.actions.githubusercontent.com</text>
+
+        <path class="edge-a" d="M940 287 H1004 V313 H948" marker-end="url(#p3a)"/>
+        <text class="lbl-s" x="928" y="295" text-anchor="end">does the trust policy allow it?</text>
+        <text class="sub" x="928" y="315" text-anchor="end">sub must equal this repo + environment &middot; aud must equal sts.amazonaws.com</text>
+
+        <path class="edge-a" d="M938 358 H188" marker-end="url(#p3a)"/>
+        <text class="lbl-s" x="560" y="350" text-anchor="middle">temporary access key + secret + session token</text>
+
+        <text class="elab" x="560" y="404" text-anchor="middle">nothing here is stored: the token is held in memory, the credentials expire on their own</text>
+      </svg>
+    </div>
+    <figcaption>
+      <b>Steps 3 and 4 are the whole security story.</b> Step 3 proves the token really came from
+      GitHub. Step 4 proves it came from <em>your</em> repository &mdash; without it, any GitHub
+      user in the world could assume your role.
+    </figcaption>
+  </figure>
+
+  <h3>What makes this repository ask for a token</h3>
+  <p>
+    Exactly one line. Without it the runner has no way to request a token at all, and step 1
+    above fails:
+  </p>
+
+  <span class="filename">.github/workflows/ci.yml &mdash; deploy job</span>
+  <pre><span class="c"># The default for the whole workflow is read-only:</span>
+<span class="k">permissions</span>:
+  <span class="k">contents</span>: read
+
+<span class="c"># ...and only the deploy job widens it, by one permission:</span>
+<span class="k">jobs</span>:
+  <span class="k">deploy</span>:
+    <span class="k">permissions</span>:
+      <span class="k">contents</span>: read
+      <span class="k">id-token</span>: write   <span class="c"># ← lets this job request an OIDC token. Nothing more.</span></pre>
+
+  <div class="note">
+    <span class="tag">A common misreading</span>
+    <p>
+      <code>id-token: write</code> does not grant any access to AWS. It only permits the job to
+      <em>ask GitHub</em> for a signed statement of identity. Whether that statement is worth
+      anything is decided entirely on the AWS side, by the trust policy.
+    </p>
+  </div>
+
+  <h3>The one AWS-side rule</h3>
+  <p>
+    This is the trust policy attached to the IAM role. Read the <code>Condition</code> block
+    closely &mdash; it is the fence around your AWS account:
+  </p>
+
+  <span class="filename">IAM role → Trust relationships</span>
+  <pre>{
+  <span class="k">"Version"</span>: "2012-10-17",
+  <span class="k">"Statement"</span>: [{
+    <span class="k">"Effect"</span>: "Allow",
+    <span class="k">"Principal"</span>: {
+      <span class="c">// The OIDC provider you registered once, in this account</span>
+      <span class="k">"Federated"</span>: "arn:aws:iam::&lt;ACCOUNT_ID&gt;:oidc-provider/token.actions.githubusercontent.com"
+    },
+    <span class="k">"Action"</span>: "sts:AssumeRoleWithWebIdentity",
+    <span class="k">"Condition"</span>: {
+      <span class="k">"StringEquals"</span>: {
+        <span class="c">// Who the token is for. Must be AWS, or a token meant for
+        // some other service could be replayed here.</span>
+        "token.actions.githubusercontent.com:aud": <span class="w">"sts.amazonaws.com"</span>,
+
+        <span class="c">// Who the token is from. This job declares `environment: production`,
+        // so GitHub sets the subject to the environment form — NOT the branch form.</span>
+        "token.actions.githubusercontent.com:sub": <span class="w">"repo:vikki-iam/eks-demo:environment:production"</span>
+      }
+    }
+  }]
+}</pre>
+
+  <div class="note warn">
+    <span class="tag">The trap that catches almost everyone</span>
+    <p>
+      GitHub changes the <code>sub</code> claim depending on how the job is written. A job with
+      no environment gets <code>repo:OWNER/REPO:ref:refs/heads/master</code>. A job that declares
+      <code>environment: production</code> &mdash; <strong>as this one does</strong> &mdash; gets
+      <code>repo:OWNER/REPO:environment:production</code> instead. Copy the wrong form into the
+      trust policy and every deploy fails with <code>Not authorized to perform
+      sts:AssumeRoleWithWebIdentity</code>, with nothing in the message to tell you why.
+    </p>
+  </div>
+
+  <div class="note bad">
+    <span class="tag">Never write this</span>
+    <p>
+      A trust policy with <code>"sub": "repo:vikki-iam/*"</code>, or with the
+      <code>sub</code> condition missing entirely, will happily accept a token from a fork, from
+      a pull request, or from an unrelated repository. Pin the full string. If you need more than
+      one branch or environment, use <code>StringLike</code> with an explicit pattern &mdash;
+      never a bare wildcard.
+    </p>
+  </div>
+
+  <h3>So what <em>is</em> stored in GitHub?</h3>
+  <p>Two values, and neither is an AWS credential:</p>
+
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>Secret</th><th>What it is</th><th>Is it a credential?</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="mono">AWS_DEPLOY_ROLE_ARN</td>
+          <td>The name of the role to assume, e.g. <code>arn:aws:iam::123…:role/gh-deploy-frontend</code>. Knowing it grants nothing &mdash; you still need a token that satisfies the trust policy.</td>
+          <td><span class="tag-ok">No</span> &mdash; stored as a secret only to keep the account ID out of logs</td>
+        </tr>
+        <tr>
+          <td class="mono">SONAR_TOKEN</td>
+          <td>Upload token for SonarCloud, scoped to that one project. Not an AWS thing at all.</td>
+          <td>Yes, but for SonarCloud only</td>
+        </tr>
+        <tr>
+          <td class="mono">GITHUB_TOKEN</td>
+          <td>Created and destroyed by GitHub for each run. You never see it or set it.</td>
+          <td>Automatic &mdash; expires with the job</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>The rest of the no-secrets discipline</h3>
+  <ul>
+    <li><strong>No API URL baked into the bundle.</strong> The frontend reads its configuration at container start, not at build time &mdash; see <a href="#runtime">section 08</a>.</li>
+    <li><strong>No <code>.env</code> in git.</strong> <code>.gitignore</code> excludes <code>.env</code> and <code>.env.*.local</code>; only <code>.env.example</code>, which contains no real values, is committed.</li>
+    <li><strong>Nothing secret in a ConfigMap.</strong> Everything in <code>k8s/configmap.yaml</code> is served to every visitor's browser anyway. Secrets would belong in a Kubernetes Secret backed by AWS Secrets Manager &mdash; not here.</li>
+    <li><strong>Gitleaks scans the full history</strong> (<code>fetch-depth: 0</code>), so a secret committed months ago and deleted last week is still caught.</li>
+    <li><strong>The pipeline never prints a credential.</strong> The AWS action masks what it receives, and the deploy summary shows only the commit, image tag, cluster and namespace.</li>
+  </ul>
+</section>
+<section id="pipeline">
+  <h2>05 &nbsp;Stage by stage</h2>
+  <p class="srcref">.github/workflows/ci.yml, top to bottom</p>
+
+  <p>
+    The numbers below are a real sequence: each stage only happens because the one before it
+    succeeded. Stages 03&ndash;08 are the three parallel jobs; everything from 09 onwards is the
+    deploy job.
+  </p>
+
+  <ol class="stages">
+    <li class="stage">
+      <div class="n">01</div>
+      <div>
+        <h3>The trigger</h3>
+        <p class="meta">on: &middot; concurrency:</p>
+        <p>
+          The workflow starts on a push to <code>main</code> or <code>master</code>, on any pull
+          request, or when someone clicks "Run workflow" in the Actions tab.
+        </p>
+<pre><span class="k">on</span>:
+  <span class="k">push</span>:
+    <span class="k">branches</span>: [main, master]
+  <span class="k">pull_request</span>:
+  <span class="k">workflow_dispatch</span>:
+
+<span class="k">concurrency</span>:
+  <span class="k">group</span>: ci-frontend-${{ github.ref }}
+  <span class="k">cancel-in-progress</span>: ${{ github.event_name == 'pull_request' }}</pre>
+        <p>
+          <strong>Concurrency</strong> means: if you push twice quickly to the same pull request,
+          the older run is cancelled &mdash; nobody cares about results for code you already
+          replaced. On <code>master</code> it is deliberately <em>not</em> cancelled, because a
+          half-finished deploy is worse than a slow one.
+        </p>
+      </div>
+    </li>
+
+    <li class="stage">
+      <div class="n">02</div>
+      <div>
+        <h3>Check out and install</h3>
+        <p class="meta">job: app &middot; ~40 s</p>
+        <p>
+          A clean Ubuntu machine downloads the code and installs Node 22. <code>npm ci</code>
+          &mdash; not <code>npm install</code> &mdash; installs precisely the versions in
+          <code>package-lock.json</code> and errors out if the lockfile and
+          <code>package.json</code> disagree. That is what makes two runs of the same commit
+          produce the same build.
+        </p>
+<pre>- <span class="k">uses</span>: actions/checkout@v4
+  <span class="k">with</span>: { fetch-depth: 0 }      <span class="c"># full history — Sonar and Gitleaks need it</span>
+- <span class="k">uses</span>: actions/setup-node@v4
+  <span class="k">with</span>: { node-version: "22", cache: npm }
+- <span class="k">run</span>: npm ci</pre>
+      </div>
+    </li>
+
+    <li class="stage">
+      <div class="n">03</div>
+      <div>
+        <h3>Lint</h3>
+        <p class="meta">npm run lint &rarr; eslint . --max-warnings 0</p>
+        <p>
+          ESLint reads the code without running it. The <code>--max-warnings 0</code> flag is the
+          opinionated bit: warnings are treated as failures, so the codebase never accumulates a
+          backlog of "we'll fix it later" that everybody learns to ignore.
+        </p>
+      </div>
+    </li>
+
+    <li class="stage">
+      <div class="n">04</div>
+      <div>
+        <h3>Test, with coverage</h3>
+        <p class="meta">npm run test:coverage &rarr; vitest run --coverage</p>
+        <p>
+          Tests run in <code>jsdom</code>, a fake browser, so React components can be rendered and
+          clicked without opening a real one. Coverage is written as <code>lcov</code> for Sonar
+          to read.
+        </p>
+<pre><span class="c">// vite.config.js</span>
+<span class="k">coverage</span>: {
+  <span class="k">provider</span>: 'v8',
+  <span class="k">reporter</span>: ['text', 'lcov'],
+  <span class="k">all</span>: true,               <span class="c">// count every file under src/, not just imported ones</span>
+  <span class="k">include</span>: ['src/**/*.{js,jsx}'],
+}</pre>
+        <p>
+          <code>all: true</code> matters more than it looks. Without it, a file with no tests is
+          simply absent from the report &mdash; so deleting a test would <em>raise</em> your
+          coverage number. With it, untested files count as zero, which is the truth.
+        </p>
+      </div>
+    </li>
+
+    <li class="stage">
+      <div class="n">05</div>
+      <div>
+        <h3>Build</h3>
+        <p class="meta">npm run build &rarr; vite build &rarr; dist/</p>
+        <p>
+          Vite compiles React into plain files a browser understands, splits vendor code into
+          separate chunks (<code>react</code>, <code>mui</code>) so a small app change doesn't
+          invalidate every browser cache, and writes source maps for debugging.
+        </p>
+      </div>
+    </li>
+
+    <li class="stage">
+      <div class="n">06</div>
+      <div>
+        <h3>SonarCloud analysis</h3>
+        <p class="meta">SonarSource/sonarqube-scan-action@v8.2.1</p>
+        <p>
+          Uploads the source and the coverage report to SonarCloud, which tracks bugs, code
+          smells, duplication and coverage across time and comments on pull requests.
+        </p>
+<pre><span class="k">sonar.projectKey</span>=vikki-iam_eks-demo
+<span class="k">sonar.organization</span>=vikki-iam
+<span class="k">sonar.sources</span>=src
+<span class="k">sonar.tests</span>=src/test
+<span class="k">sonar.javascript.lcov.reportPaths</span>=coverage/lcov.info</pre>
+      </div>
+    </li>
+
+    <li class="stage">
+      <div class="n">07</div>
+      <div>
+        <h3>Secret scan</h3>
+        <p class="meta">job: secrets &middot; gitleaks/gitleaks-action@v2</p>
+        <p>
+          Runs in parallel with everything above. Gitleaks walks the full commit history looking
+          for anything shaped like a credential. Because git keeps every version of every file
+          forever, a secret that was committed and then "removed" is still sitting there &mdash;
+          this is the job that finds it.
+        </p>
+        <p>
+          It has <code>pull-requests: write</code> so it can post its findings on the PR, and
+          nothing else.
+        </p>
+      </div>
+    </li>
+
+    <li class="stage">
+      <div class="n">08</div>
+      <div>
+        <h3>Manifest validation</h3>
+        <p class="meta">job: manifests &middot; kubeconform v0.6.7</p>
+        <p>
+          Checks the three YAML files in <code>k8s/</code> against the official Kubernetes
+          schemas in <code>-strict</code> mode, which rejects unknown fields. A misspelled
+          <code>contaienrPort</code> would otherwise be silently ignored by the cluster and you
+          would debug a service that never gets traffic.
+        </p>
+<pre>- <span class="k">uses</span>: docker://ghcr.io/yannh/kubeconform:v0.6.7
+  <span class="k">with</span>:
+    <span class="k">args</span>: -strict -summary k8s/configmap.yaml k8s/service.yaml k8s/deployment.yaml</pre>
+      </div>
+    </li>
+
+    <li class="stage">
+      <div class="n">09</div>
+      <div>
+        <h3>The gate</h3>
+        <p class="meta">job: deploy &middot; needs &middot; if &middot; environment</p>
+        <p>Four independent conditions have to line up before anything touches AWS:</p>
+<pre><span class="k">needs</span>: [app, secrets, manifests]      <span class="c"># all three checks passed</span>
+
+<span class="k">if</span>: &gt;-
+  github.ref == 'refs/heads/master' &amp;&amp;    <span class="c"># master only</span>
+  (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+
+<span class="k">environment</span>:
+  <span class="k">name</span>: production                   <span class="c"># optional approvals + scoped secrets</span>
+
+<span class="k">concurrency</span>:
+  <span class="k">group</span>: deploy-frontend
+  <span class="k">cancel-in-progress</span>: false           <span class="c"># never interrupt a live rollout</span></pre>
+        <p>
+          A pull request from a fork therefore cannot deploy, cannot read the production secrets,
+          and cannot request a token that the trust policy would accept &mdash; three separate
+          reasons, any one of which would be enough.
+        </p>
+        <p>
+          Before doing anything else the job asserts its own configuration is present, so a
+          missing secret fails in five seconds with a clear message instead of halfway through a
+          deploy:
+        </p>
+<pre><span class="k">- name</span>: Check config
+  <span class="k">run</span>: |
+    <span class="k">for</span> v <span class="k">in</span> AWS_REGION EKS_CLUSTER K8S_NAMESPACE ECR_REPO ROLE_ARN; <span class="k">do</span>
+      [ -z "${!v}" ] &amp;&amp; echo "::error::$v is not set" &amp;&amp; missing=1
+    <span class="k">done</span></pre>
+      </div>
+    </li>
+
+    <li class="stage">
+      <div class="n">10</div>
+      <div>
+        <h3>Log in to AWS &mdash; without a password</h3>
+        <p class="meta">aws-actions/configure-aws-credentials@v4</p>
+        <p>
+          This is the exchange drawn in <a href="#keyless">section 04</a>. Note what is
+          <em>absent</em>: no <code>aws-access-key-id</code>, no <code>aws-secret-access-key</code>.
+        </p>
+<pre>- <span class="k">name</span>: Log in to AWS
+  <span class="k">uses</span>: aws-actions/configure-aws-credentials@v4
+  <span class="k">with</span>:
+    <span class="k">role-to-assume</span>: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+    <span class="k">role-session-name</span>: gh-deploy-frontend   <span class="c"># shows up in CloudTrail</span>
+    <span class="k">aws-region</span>: ${{ env.AWS_REGION }}</pre>
+        <p>
+          <code>role-session-name</code> is worth setting properly: every AWS API call this job
+          makes is recorded in CloudTrail under that name, so an audit can tie a cluster change
+          back to a specific pipeline rather than to "someone".
+        </p>
+      </div>
+    </li>
+
+    <li class="stage">
+      <div class="n">11</div>
+      <div>
+        <h3>Build the image, then scan it</h3>
+        <p class="meta">docker build &middot; aquasecurity/trivy-action@v0.36.0</p>
+        <p>
+          The image is built and scanned <strong>before</strong> it is pushed. A vulnerable image
+          therefore never reaches the registry at all, so nobody can pull it by accident later.
+        </p>
+<pre>- <span class="k">run</span>: docker build -t scan-target .
+
+- <span class="k">uses</span>: aquasecurity/trivy-action@v0.36.0
+  <span class="k">with</span>:
+    <span class="k">image-ref</span>: scan-target
+    <span class="k">severity</span>: CRITICAL         <span class="c"># fail only on the worst class</span>
+    <span class="k">ignore-unfixed</span>: true       <span class="c"># don't block on CVEs with no patch yet</span>
+    <span class="k">exit-code</span>: '1'             <span class="c"># ← without this, findings are printed and ignored</span></pre>
+        <div class="note warn">
+          <span class="tag">Read that last line again</span>
+          <p>
+            A scanner without <code>exit-code: '1'</code> is decoration. It prints a nice table,
+            the step goes green, and the vulnerable image ships anyway. The exit code is what
+            turns a report into a gate.
+          </p>
+        </div>
+      </div>
+    </li>
+
+    <li class="stage">
+      <div class="n">12</div>
+      <div>
+        <h3>Push to ECR</h3>
+        <p class="meta">aws-actions/amazon-ecr-login@v2</p>
+        <p>
+          The ECR login action uses the temporary credentials from stage 10 to fetch a
+          short-lived docker login. The image is tagged with the full commit SHA &mdash; never
+          <code>latest</code>.
+        </p>
+<pre>IMAGE=$REGISTRY/$ECR_REPO/frontend:$SHA
+docker tag scan-target "$IMAGE"
+docker push "$IMAGE"</pre>
+        <p>
+          Tagging by commit means you can look at a running pod, read its image tag, and go
+          straight to the exact line of code. <code>latest</code> gives you none of that and makes
+          rollback ambiguous.
+        </p>
+      </div>
+    </li>
+
+    <li class="stage">
+      <div class="n">13</div>
+      <div>
+        <h3>Deploy to EKS</h3>
+        <p class="meta">aws eks update-kubeconfig &middot; kubectl apply</p>
+        <p>
+          <code>update-kubeconfig</code> writes a temporary kubeconfig that authenticates to the
+          cluster using the same short-lived credentials &mdash; still nothing stored. Then the
+          manifests are applied, with the image substituted in.
+        </p>
+<pre><span class="c"># fail loudly if the placeholder is gone, rather than deploying a literal string</span>
+grep -q IMAGE_PLACEHOLDER k8s/deployment.yaml || exit 1
+
+kubectl apply -n "$K8S_NAMESPACE" -f k8s/configmap.yaml -f k8s/service.yaml
+sed "s|IMAGE_PLACEHOLDER|$IMAGE|" k8s/deployment.yaml | kubectl apply -n "$K8S_NAMESPACE" -f -
+kubectl rollout status deployment/frontend -n "$K8S_NAMESPACE" --timeout=5m</pre>
+        <p>
+          <code>rollout status</code> is the step that turns "the YAML was accepted" into "the new
+          pods are actually running and healthy". Without it, the job would go green the moment
+          Kubernetes acknowledged the request, whether or not the container ever started.
+        </p>
+      </div>
+    </li>
+
+    <li class="stage">
+      <div class="n">14</div>
+      <div>
+        <h3>Verify from inside the cluster</h3>
+        <p class="meta">kubectl run … curlimages/curl</p>
+        <p>
+          A throwaway pod is started inside the namespace and asked to fetch the site through the
+          Service. This proves the whole chain works &mdash; Service selector, pod readiness,
+          nginx, the files themselves &mdash; not just that a container is alive.
+        </p>
+<pre>kubectl run "verify-fe-${SHA:0:8}-${GITHUB_RUN_ATTEMPT}" \
+  --rm --attach --restart=Never -q \
+  -n "$K8S_NAMESPACE" --image=curlimages/curl:8.11.1 -- \
+  -fsS --max-time 10 http://frontend/ -o /dev/null</pre>
+        <p>
+          The pod name includes the commit and the attempt number so a retry doesn't collide with
+          the leftover pod from the previous try.
+        </p>
+      </div>
+    </li>
+
+    <li class="stage">
+      <div class="n">15</div>
+      <div>
+        <h3>Roll back and report</h3>
+        <p class="meta">if: failure() &middot; kubectl rollout undo</p>
+        <p>
+          If the rollout stalled or the verification failed, the job undoes the rollout by itself
+          and then dumps the pod list and the tail of <code>describe</code> &mdash; usually enough
+          to see the cause without opening a terminal.
+        </p>
+<pre>- <span class="k">name</span>: Roll back
+  <span class="k">if</span>: failure() &amp;&amp; (steps.deploy.outcome == 'success' || steps.deploy.outcome == 'failure')
+  <span class="k">run</span>: |
+    kubectl rollout undo deployment/frontend -n "$K8S_NAMESPACE" || true
+    kubectl rollout status deployment/frontend -n "$K8S_NAMESPACE" --timeout=3m || true
+    kubectl get pods -n "$K8S_NAMESPACE" -l app=frontend
+    kubectl describe pods -n "$K8S_NAMESPACE" -l app=frontend | tail -30</pre>
+        <p>
+          Finally, every run &mdash; pass or fail &mdash; writes a small table to the GitHub run
+          summary with the commit, image, cluster and namespace, so you never have to expand log
+          groups to find out what was deployed.
+        </p>
+      </div>
+    </li>
+  </ol>
+</section>
+<section id="gates">
+  <h2>06 &nbsp;Security gates</h2>
+  <p class="srcref">Six checks, each able to stop the run on its own</p>
+
+  <p>
+    A "gate" is a check with teeth: if it fails, the pipeline stops. A check that only prints a
+    warning is a report, not a gate. Every one of the six below is wired to fail the run.
+  </p>
+
+  <figure class="plate extra-wide">
+    <div class="scroll">
+      <svg viewBox="0 0 1400 250" role="img"
+           aria-label="Six gates between commit and deployment: Gitleaks, ESLint, Vitest, SonarCloud and kubeconform run on the source in parallel, Trivy runs on the built image; any failure stops the run before anything is deployed.">
+        <defs>
+          <marker id="p5a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 1l9 4-9 4z" fill="#33484D"/>
+          </marker>
+          <marker id="p5b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 1l9 4-9 4z" fill="#E58179"/>
+          </marker>
+        </defs>
+
+        <text class="sub" x="610" y="52" text-anchor="middle">checked on the source code</text>
+        <text class="sub" x="1150" y="52" text-anchor="middle">checked on the built image</text>
+        <path class="zone" d="M175 62 H1045"/>
+        <path class="zone" d="M1075 62 H1225"/>
+
+        <rect class="box" x="20" y="88" width="120" height="44" rx="3"/>
+        <text class="lbl-s" x="80" y="115" text-anchor="middle">commit</text>
+
+        <path class="edge" d="M140 110 H167" marker-end="url(#p5a)"/>
+
+        <g>
+          <rect class="box" x="175" y="88" width="150" height="44" rx="3"/>
+          <text class="lbl-s" x="250" y="107" text-anchor="middle">Gitleaks</text>
+          <text class="sub" x="250" y="123" text-anchor="middle">committed secrets</text>
+          <path class="edge-d" d="M250 132 V178" marker-end="url(#p5b)"/>
+        </g>
+        <path class="edge" d="M325 110 H347" marker-end="url(#p5a)"/>
+
+        <g>
+          <rect class="box" x="355" y="88" width="150" height="44" rx="3"/>
+          <text class="lbl-s" x="430" y="107" text-anchor="middle">ESLint</text>
+          <text class="sub" x="430" y="123" text-anchor="middle">0 warnings allowed</text>
+          <path class="edge-d" d="M430 132 V178" marker-end="url(#p5b)"/>
+        </g>
+        <path class="edge" d="M505 110 H527" marker-end="url(#p5a)"/>
+
+        <g>
+          <rect class="box" x="535" y="88" width="150" height="44" rx="3"/>
+          <text class="lbl-s" x="610" y="107" text-anchor="middle">Vitest</text>
+          <text class="sub" x="610" y="123" text-anchor="middle">tests + coverage</text>
+          <path class="edge-d" d="M610 132 V178" marker-end="url(#p5b)"/>
+        </g>
+        <path class="edge" d="M685 110 H707" marker-end="url(#p5a)"/>
+
+        <g>
+          <rect class="box" x="715" y="88" width="150" height="44" rx="3"/>
+          <text class="lbl-s" x="790" y="107" text-anchor="middle">SonarCloud</text>
+          <text class="sub" x="790" y="123" text-anchor="middle">bugs, smells, dupes</text>
+          <path class="edge-d" d="M790 132 V178" marker-end="url(#p5b)"/>
+        </g>
+        <path class="edge" d="M865 110 H887" marker-end="url(#p5a)"/>
+
+        <g>
+          <rect class="box" x="895" y="88" width="150" height="44" rx="3"/>
+          <text class="lbl-s" x="970" y="107" text-anchor="middle">kubeconform</text>
+          <text class="sub" x="970" y="123" text-anchor="middle">invalid k8s YAML</text>
+          <path class="edge-d" d="M970 132 V178" marker-end="url(#p5b)"/>
+        </g>
+        <path class="edge" d="M1045 110 H1067" marker-end="url(#p5a)"/>
+
+        <g>
+          <rect class="box-a" x="1075" y="88" width="150" height="44" rx="3"/>
+          <text class="lbl-s" x="1150" y="107" text-anchor="middle">Trivy</text>
+          <text class="sub" x="1150" y="123" text-anchor="middle">CRITICAL CVEs</text>
+          <path class="edge-d" d="M1150 132 V178" marker-end="url(#p5b)"/>
+        </g>
+        <path class="edge" d="M1225 110 H1257" marker-end="url(#p5a)"/>
+
+        <rect class="box-a" x="1265" y="88" width="120" height="44" rx="3"/>
+        <text class="lbl-s" x="1325" y="115" text-anchor="middle">deploy</text>
+
+        <rect class="box-d" x="20" y="186" width="1365" height="42" rx="3"/>
+        <text class="lbl-s" x="702" y="212" text-anchor="middle">any red gate ends the run — nothing is built, pushed, or deployed</text>
+      </svg>
+    </div>
+    <figcaption>
+      <b>Where each gate sits.</b> Five gates run on the source before an image exists, so a bad
+      commit costs seconds. Trivy is the exception: it needs a built image, so it runs inside the
+      deploy job &mdash; but still before the push, which is why a vulnerable image never reaches
+      ECR.
+    </figcaption>
+  </figure>
+
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>Gate</th><th>Catches</th><th>Runs on</th><th>How it fails the run</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="mono">Gitleaks</td>
+          <td>AWS keys, tokens, private keys committed anywhere in history</td>
+          <td>every push and PR</td>
+          <td>non-zero exit from the action</td>
+        </tr>
+        <tr>
+          <td class="mono">ESLint</td>
+          <td>unused variables, broken hooks rules, unsafe patterns</td>
+          <td>every push and PR</td>
+          <td><code>--max-warnings 0</code></td>
+        </tr>
+        <tr>
+          <td class="mono">Vitest</td>
+          <td>behaviour regressions; produces the coverage report</td>
+          <td>every push and PR</td>
+          <td>any failing test</td>
+        </tr>
+        <tr>
+          <td class="mono">SonarCloud</td>
+          <td>bugs, code smells, duplication, coverage trend</td>
+          <td>every push and PR</td>
+          <td>quality gate status (configure it in SonarCloud)</td>
+        </tr>
+        <tr>
+          <td class="mono">kubeconform</td>
+          <td>invalid or misspelled Kubernetes manifests</td>
+          <td>every push and PR</td>
+          <td><code>-strict</code> rejects unknown fields</td>
+        </tr>
+        <tr>
+          <td class="mono">Trivy</td>
+          <td>known CRITICAL vulnerabilities in the OS and libraries in the image</td>
+          <td>deploy job, before the push</td>
+          <td><code>exit-code: '1'</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>The gates you can't see</h3>
+  <p>Four more controls do not appear as steps, but do as much work as the ones that do:</p>
+  <ul>
+    <li><strong>Default-deny token permissions.</strong> The workflow starts at <code>contents: read</code>. If someone injects a malicious step, it cannot push code, open a release, or touch issues, because the token it would steal has no such rights.</li>
+    <li><strong>Branch and event conditions.</strong> Deployment is impossible from a branch that is not <code>master</code>, and from an event that is not a push or a manual dispatch.</li>
+    <li><strong>The <code>production</code> environment.</strong> Deploy-scoped secrets live behind it, and you can add required reviewers there without touching the workflow file at all.</li>
+    <li><strong>The OIDC trust policy.</strong> Even if every other control were bypassed, AWS still refuses a token whose <code>sub</code> is not exactly this repository's production environment.</li>
+  </ul>
+</section>
+
+<section id="iam">
+  <h2>07 &nbsp;IAM &amp; least privilege</h2>
+  <p class="srcref">What the pipeline is allowed to do &mdash; and nothing more</p>
+
+  <p>
+    "Least privilege" means the deploy role can do exactly the handful of things this pipeline
+    needs and would be useless to anyone who somehow got hold of it. The permissions split in
+    two, because Kubernetes has its own permission system layered on top of AWS's.
+  </p>
+
+  <h3>Layer 1 &mdash; the AWS permissions policy</h3>
+  <p>Attached to the role, this is what the temporary credentials can do:</p>
+
+  <span class="filename">IAM role → Permissions</span>
+  <pre>{
+  <span class="k">"Version"</span>: "2012-10-17",
+  <span class="k">"Statement"</span>: [
+    {
+      <span class="c">// Getting a registry login token can only be granted account-wide;
+      // by itself it lets you log in, not read or write any repository.</span>
+      <span class="k">"Effect"</span>: "Allow",
+      <span class="k">"Action"</span>: "ecr:GetAuthorizationToken",
+      <span class="k">"Resource"</span>: "*"
+    },
+    {
+      <span class="c">// Push and pull, scoped to this one repository.</span>
+      <span class="k">"Effect"</span>: "Allow",
+      <span class="k">"Action"</span>: [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:InitiateLayerUpload",
+        "ecr:UploadLayerPart",
+        "ecr:CompleteLayerUpload",
+        "ecr:PutImage",
+        "ecr:BatchGetImage"
+      ],
+      <span class="k">"Resource"</span>: "arn:aws:ecr:ap-south-1:&lt;ACCOUNT_ID&gt;:repository/ai-interview-dev-platform/frontend"
+    },
+    {
+      <span class="c">// Only enough to build a kubeconfig for this one cluster.</span>
+      <span class="k">"Effect"</span>: "Allow",
+      <span class="k">"Action"</span>: "eks:DescribeCluster",
+      <span class="k">"Resource"</span>: "arn:aws:eks:ap-south-1:&lt;ACCOUNT_ID&gt;:cluster/ai-interview"
+    }
+  ]
+}</pre>
+
+  <div class="note">
+    <span class="tag">What is deliberately missing</span>
+    <p>
+      No <code>ecr:DeleteRepository</code>, no <code>iam:*</code>, no <code>ec2:*</code>, no
+      <code>eks:UpdateClusterConfig</code>, no access to any other ECR repository or cluster.
+      If this role were somehow assumed by an attacker, the worst they could do is push an image
+      to one repository and read one cluster's description.
+    </p>
+  </div>
+
+  <h3>Layer 2 &mdash; permission inside the cluster</h3>
+  <p>
+    <code>eks:DescribeCluster</code> lets you <em>build</em> a kubeconfig; it does not let you
+    <em>use</em> it. Kubernetes decides that separately. On a modern EKS cluster you grant it with
+    an access entry:
+  </p>
+
+<pre><span class="c"># 1. tell the cluster this IAM role maps to a Kubernetes identity</span>
+aws eks create-access-entry \
+  --cluster-name ai-interview \
+  --principal-arn arn:aws:iam::&lt;ACCOUNT_ID&gt;:role/gh-deploy-frontend \
+  --type STANDARD
+
+<span class="c"># 2. give that identity admin rights in ONE namespace only</span>
+aws eks associate-access-policy \
+  --cluster-name ai-interview \
+  --principal-arn arn:aws:iam::&lt;ACCOUNT_ID&gt;:role/gh-deploy-frontend \
+  --policy-arn arn:aws:eks::aws:cluster-access-policy/AmazonEKSAdminPolicy \
+  --access-scope type=namespace,namespaces=demo</pre>
+
+  <p>
+    <code>type=namespace,namespaces=demo</code> is the important part: the pipeline is an admin of
+    the <code>demo</code> namespace and a nobody everywhere else in the cluster.
+  </p>
+
+  <div class="note warn">
+    <span class="tag">Older clusters</span>
+    <p>
+      If the cluster still uses the <code>aws-auth</code> ConfigMap instead of access entries,
+      the equivalent is a <code>mapRoles</code> entry pointing at a Role/RoleBinding you create in
+      the <code>demo</code> namespace. Prefer access entries on anything new &mdash; a mistake in
+      <code>aws-auth</code> can lock everyone out of the cluster.
+    </p>
+  </div>
+
+  <h3>The GitHub side of least privilege</h3>
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>Scope</th><th>Permission</th><th>Why</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>whole workflow</td><td class="mono">contents: read</td><td>the floor for every job: read the code, nothing else</td></tr>
+        <tr><td>job: secrets</td><td class="mono">pull-requests: write</td><td>so Gitleaks can comment findings on the PR</td></tr>
+        <tr><td>job: deploy</td><td class="mono">id-token: write</td><td>so it can request an OIDC token &mdash; the only job that can</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    Three jobs out of four cannot request a token at all. That is not a formality: it means a
+    compromised dependency in the test suite has no path to AWS, because the machinery it would
+    need is not enabled in that job.
+  </p>
+</section>
+<section id="runtime">
+  <h2>08 &nbsp;Config without secrets</h2>
+  <p class="srcref">src/config.js &middot; docker-entrypoint.sh &middot; k8s/configmap.yaml</p>
+
+  <p>
+    A frontend needs to know where its API lives. The tempting approach is to put the URL in an
+    environment variable at build time &mdash; but a frontend build <em>bakes</em> that value into
+    the JavaScript. One value per build means one image per environment, which means the image
+    you tested in dev is not the image you ship to production. You are then testing something you
+    never deploy.
+  </p>
+  <p>
+    This project builds the image once and configures it at start-up instead.
+  </p>
+
+  <figure class="plate">
+    <div class="scroll">
+      <svg viewBox="0 0 1060 390" role="img"
+           aria-label="One image from ECR is deployed unchanged to three namespaces; each namespace supplies a different ConfigMap, and the container entrypoint renders those values into runtime-config.js at start, so each browser gets different settings from identical bytes.">
+        <defs>
+          <marker id="p4a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 1l9 4-9 4z" fill="#33484D"/>
+          </marker>
+          <marker id="p4b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 1l9 4-9 4z" fill="#4FD1C5"/>
+          </marker>
+        </defs>
+
+        <rect class="box-a" x="40" y="155" width="190" height="70" rx="3"/>
+        <text class="lbl-s" x="135" y="182" text-anchor="middle">ECR image</text>
+        <text class="sub" x="135" y="200" text-anchor="middle">:&lt;commit sha&gt;</text>
+        <text class="acc" x="135" y="243" text-anchor="middle">built once</text>
+
+        <path class="edge-a" d="M230 190 H280 V76 H322" marker-end="url(#p4b)"/>
+        <path class="edge-a" d="M230 190 H322" marker-end="url(#p4b)"/>
+        <path class="edge-a" d="M230 190 H280 V304 H322" marker-end="url(#p4b)"/>
+        <text class="elab-a" x="276" y="128" text-anchor="middle">identical bytes</text>
+
+        <rect class="box" x="330" y="40" width="250" height="72" rx="3"/>
+        <text class="lbl-s" x="346" y="63">ConfigMap · dev</text>
+        <text class="sub" x="346" y="82">API_BASE_URL=https://dev-api…</text>
+        <text class="sub" x="346" y="100">APP_ENV=dev</text>
+
+        <rect class="box" x="330" y="154" width="250" height="72" rx="3"/>
+        <text class="lbl-s" x="346" y="177">ConfigMap · demo</text>
+        <text class="sub" x="346" y="196">API_BASE_URL="" (same origin)</text>
+        <text class="sub" x="346" y="214">APP_ENV=dev</text>
+
+        <rect class="box" x="330" y="268" width="250" height="72" rx="3"/>
+        <text class="lbl-s" x="346" y="291">ConfigMap · prod</text>
+        <text class="sub" x="346" y="310">API_BASE_URL="" (same origin)</text>
+        <text class="sub" x="346" y="328">APP_ENV=prod</text>
+
+        <path class="edge" d="M580 76 H692" marker-end="url(#p4a)"/>
+        <path class="edge" d="M580 190 H692" marker-end="url(#p4a)"/>
+        <path class="edge" d="M580 304 H692" marker-end="url(#p4a)"/>
+        <text class="elab" x="636" y="68" text-anchor="middle">rendered</text>
+        <text class="elab" x="636" y="182" text-anchor="middle">rendered</text>
+        <text class="elab" x="636" y="296" text-anchor="middle">rendered</text>
+
+        <rect class="box" x="700" y="40" width="280" height="72" rx="3"/>
+        <text class="lbl-s" x="716" y="63">browser · dev</text>
+        <text class="sub" x="716" y="82">calls the dev API host</text>
+        <text class="sub" x="716" y="100">seed logins visible</text>
+
+        <rect class="box" x="700" y="154" width="280" height="72" rx="3"/>
+        <text class="lbl-s" x="716" y="177">browser · demo</text>
+        <text class="sub" x="716" y="196">calls /api on its own host</text>
+        <text class="sub" x="716" y="214">seed logins visible</text>
+
+        <rect class="box" x="700" y="268" width="280" height="72" rx="3"/>
+        <text class="lbl-s" x="716" y="291">browser · prod</text>
+        <text class="sub" x="716" y="310">calls /api on its own host</text>
+        <text class="sub" x="716" y="328">seed logins hidden</text>
+
+        <text class="elab" x="530" y="374" text-anchor="middle">on start, docker-entrypoint.sh writes runtime-config.js — the browser reads window.__APP_CONFIG__</text>
+      </svg>
+    </div>
+    <figcaption>
+      <b>One artifact, three behaviours.</b> The three rows are the same image, byte for byte.
+      Only the ConfigMap differs, so promoting from dev to production is a tag change, not a
+      rebuild &mdash; and the thing you tested is exactly the thing that ships.
+    </figcaption>
+  </figure>
+
+  <h3>How the value reaches the browser</h3>
+  <p>Three short hops, and nothing sensitive at any of them:</p>
+
+  <span class="filename">1 — k8s/configmap.yaml → environment variables in the pod</span>
+  <pre><span class="k">envFrom</span>:
+  - <span class="k">configMapRef</span>:
+      <span class="k">name</span>: frontend-config</pre>
+
+  <span class="filename">2 — docker-entrypoint.sh → a small JS file, written at start</span>
+  <pre><span class="c">// escaped so a quote or backslash in a value cannot break out of the
+// string and inject code into every page load</span>
+cat &gt; /usr/share/nginx/html/runtime-config.js &lt;&lt;EOF
+window.__APP_CONFIG__ = {
+  apiBaseUrl: "$(escape_js "${API_BASE_URL}")",
+  appEnv:     "$(escape_js "${APP_ENV}")"
+};
+EOF
+
+exec "$@"   <span class="c"># nginx becomes PID 1 and receives SIGTERM directly</span></pre>
+
+  <span class="filename">3 — src/config.js → what the app reads</span>
+  <pre><span class="k">const</span> runtime = <span class="k">typeof</span> window !== 'undefined' ? window.__APP_CONFIG__ || {} : {};
+
+<span class="k">export const</span> config = {
+  apiBaseUrl: (runtime.apiBaseUrl || '').replace(/\/+$/, ''),
+  appEnv:     runtime.appEnv || 'dev',
+  apiPrefix:  '/api/v1',
+};</pre>
+
+  <div class="note good">
+    <span class="tag">Why this is safe</span>
+    <p>
+      Everything in <code>runtime-config.js</code> is downloaded by every visitor, so it must
+      contain nothing you would not print on a billboard: an API URL and an environment name.
+      Real secrets never go near a browser &mdash; they belong to the backend, which reads them
+      from a Kubernetes Secret or AWS Secrets Manager.
+    </p>
+  </div>
+
+  <div class="note warn">
+    <span class="tag">Behaviour worth knowing</span>
+    <p>
+      Editing the ConfigMap alone does <em>not</em> restart the pods. The Deployment hasn't
+      changed, so Kubernetes leaves them running with the old values. Force a restart with
+      <code>kubectl rollout restart deployment/frontend -n demo</code>.
+    </p>
+  </div>
+  <div class="note">
+    <span class="tag">Also by design</span>
+    <p>
+      nginx serves <code>runtime-config.js</code> with <code>no-store</code>, while hashed files
+      under <code>/assets/</code> are cached for a year as <code>immutable</code>. A cached config
+      file would be the one thing capable of pointing a production browser at a dev API.
+    </p>
+  </div>
+</section>
+
+<section id="container">
+  <h2>09 &nbsp;Inside the container</h2>
+  <p class="srcref">Dockerfile &middot; nginx.conf &middot; .dockerignore</p>
+
+  <p>
+    The image is built in two stages. The first stage has Node, npm, the source and all the
+    dependencies. The second stage takes <em>only the compiled output</em> from the first and puts
+    it behind nginx. Everything used to build the app is discarded.
+  </p>
+
+<pre><span class="c"># ---------- stage 1: build ----------</span>
+<span class="k">FROM</span> node:22.12.0-alpine <span class="k">AS</span> build
+<span class="k">COPY</span> package.json package-lock.json ./
+<span class="k">RUN</span> npm ci                      <span class="c"># cached unless the lockfile changes</span>
+<span class="k">COPY</span> vite.config.js index.html ./
+<span class="k">COPY</span> src ./src
+<span class="k">RUN</span> npm run build
+
+<span class="c"># ---------- stage 2: runtime ----------</span>
+<span class="k">FROM</span> nginx:alpine <span class="k">AS</span> runtime
+<span class="k">COPY</span> --from=build --chown=nginx:nginx /build/dist /usr/share/nginx/html
+<span class="k">USER</span> 101:101                   <span class="c"># unprivileged; never root</span>
+<span class="k">EXPOSE</span> 3000                    <span class="c"># unprivileged port; no extra capability needed</span>
+<span class="k">HEALTHCHECK</span> CMD wget --spider http://localhost:3000/healthz || exit 1</pre>
+
+  <h3>Why each choice is there</h3>
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>Choice</th><th>Reason</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Multi-stage build</td><td>The final image has no Node runtime, no <code>node_modules</code> and no source code &mdash; a much smaller image and far fewer things for Trivy to find.</td></tr>
+        <tr><td>Lockfile copied first</td><td>Docker caches layers. Changing a component doesn't re-download every dependency, so most builds take seconds instead of minutes.</td></tr>
+        <tr><td><code>USER 101:101</code></td><td>If someone breaks out of the web server, they land as an unprivileged user, not root. Every path nginx writes to is relocated under <code>/tmp</code> to make this possible.</td></tr>
+        <tr><td>Port 3000, not 80</td><td>Ports below 1024 need a special capability. Listening high means the container needs no elevated privilege at all.</td></tr>
+        <tr><td><code>/healthz</code></td><td>A plain-text endpoint that answers without touching the filesystem and is excluded from access logs, used by the Docker healthcheck and both Kubernetes probes.</td></tr>
+        <tr><td>Alpine base</td><td>A few megabytes of OS instead of a few hundred &mdash; fewer packages, fewer CVEs.</td></tr>
+        <tr><td><code>.dockerignore</code></td><td>Keeps <code>node_modules</code>, <code>.git</code>, <code>coverage/</code> and tests out of the build context. Faster, and no chance of a stray local file ending up in the image.</td></tr>
+        <tr><td>Security headers</td><td>nginx always sends <code>X-Content-Type-Options: nosniff</code>, <code>X-Frame-Options: DENY</code> and a strict <code>Referrer-Policy</code>; <code>server_tokens off</code> hides the version.</td></tr>
+        <tr><td>JSON access logs</td><td>Logs come out structured, so they land in a log system in the same shape as every other service.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="k8s">
+  <h2>10 &nbsp;On the cluster</h2>
+  <p class="srcref">k8s/deployment.yaml &middot; service.yaml &middot; configmap.yaml</p>
+
+  <p>
+    Three small YAML files describe the entire running system. Kubernetes reads them as a
+    <em>desired state</em> and works continuously to make reality match &mdash; which is why a
+    killed pod comes back without anyone being paged.
+  </p>
+
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>Object</th><th>Its one job</th><th>Key settings here</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="mono">Deployment</td>
+          <td>Keep N copies of this image running, and replace them safely on update</td>
+          <td class="mono">replicas: 1 &middot; image: IMAGE_PLACEHOLDER &middot; probes on /healthz &middot; cpu 25m / mem 64Mi&ndash;192Mi</td>
+        </tr>
+        <tr>
+          <td class="mono">Service</td>
+          <td>Give those pods one stable address inside the cluster</td>
+          <td class="mono">port 80 &rarr; targetPort http (3000)</td>
+        </tr>
+        <tr>
+          <td class="mono">ConfigMap</td>
+          <td>Hold non-secret settings, injected as environment variables</td>
+          <td class="mono">API_BASE_URL &middot; APP_ENV</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Liveness vs readiness &mdash; the distinction that confuses everyone</h3>
+  <ul>
+    <li><strong>Liveness</strong> asks "is this container still alive?" If it fails, Kubernetes <em>restarts</em> the container.</li>
+    <li><strong>Readiness</strong> asks "can it serve traffic right now?" If it fails, Kubernetes <em>removes the pod from the Service</em> but leaves it running.</li>
+  </ul>
+  <p>
+    Readiness is what makes a zero-downtime rollout possible: a new pod receives no traffic until
+    it says it is ready, and the old pod is only removed once the new one is.
+  </p>
+
+  <h3>What a rollout actually does</h3>
+
+  <figure class="plate">
+    <div class="scroll">
+      <svg viewBox="0 0 1000 300" role="img"
+           aria-label="Rollout path: apply creates a new ReplicaSet, pods must pass the readiness probe, rollout status waits up to five minutes, then a curl pod verifies through the Service. A probe timeout or a failed verification triggers rollout undo, restoring the previous pods.">
+        <defs>
+          <marker id="p6a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 1l9 4-9 4z" fill="#4FD1C5"/>
+          </marker>
+          <marker id="p6b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 1l9 4-9 4z" fill="#E58179"/>
+          </marker>
+        </defs>
+
+        <rect class="box" x="30" y="60" width="160" height="56" rx="3"/>
+        <text class="lbl-s" x="110" y="84" text-anchor="middle">kubectl apply</text>
+        <text class="sub" x="110" y="101" text-anchor="middle">image swapped in</text>
+
+        <rect class="box" x="230" y="60" width="170" height="56" rx="3"/>
+        <text class="lbl-s" x="315" y="84" text-anchor="middle">new ReplicaSet</text>
+        <text class="sub" x="315" y="101" text-anchor="middle">new pod starting</text>
+
+        <rect class="box" x="440" y="60" width="170" height="56" rx="3"/>
+        <text class="lbl-s" x="525" y="84" text-anchor="middle">readiness /healthz</text>
+        <text class="sub" x="525" y="101" text-anchor="middle">joins the Service</text>
+
+        <rect class="box" x="650" y="60" width="150" height="56" rx="3"/>
+        <text class="lbl-s" x="725" y="84" text-anchor="middle">verify</text>
+        <text class="sub" x="725" y="101" text-anchor="middle">curl pod</text>
+
+        <rect class="box-a" x="840" y="60" width="130" height="56" rx="3"/>
+        <text class="lbl-s" x="905" y="84" text-anchor="middle">live</text>
+        <text class="sub" x="905" y="101" text-anchor="middle">old pod removed</text>
+
+        <path class="edge-a" d="M190 88 H222" marker-end="url(#p6a)"/>
+        <path class="edge-a" d="M400 88 H432" marker-end="url(#p6a)"/>
+        <text class="elab" x="416" y="80" text-anchor="middle">starts</text>
+        <path class="edge-a" d="M610 88 H642" marker-end="url(#p6a)"/>
+        <text class="elab" x="626" y="80" text-anchor="middle">ready</text>
+        <path class="edge-a" d="M800 88 H832" marker-end="url(#p6a)"/>
+        <text class="elab" x="816" y="80" text-anchor="middle">200 OK</text>
+
+        <rect class="box-d" x="440" y="190" width="170" height="56" rx="3"/>
+        <text class="lbl-s" x="525" y="214" text-anchor="middle">rollout undo</text>
+        <text class="sub" x="525" y="231" text-anchor="middle">automatic</text>
+
+        <rect class="box" x="650" y="190" width="200" height="56" rx="3"/>
+        <text class="lbl-s" x="750" y="214" text-anchor="middle">previous pods restored</text>
+        <text class="sub" x="750" y="231" text-anchor="middle">users never saw the new one</text>
+
+        <path class="edge-d" d="M505 116 V182" marker-end="url(#p6b)"/>
+        <text class="elab-d" x="495" y="152" text-anchor="end">never ready · 5 min timeout</text>
+
+        <path class="edge-d" d="M725 116 V150 H545 V182" marker-end="url(#p6b)"/>
+        <text class="elab-d" x="735" y="142">curl fails</text>
+
+        <path class="edge-d" d="M610 218 H642" marker-end="url(#p6b)"/>
+
+        <text class="elab" x="500" y="282" text-anchor="middle">the bad image stays in ECR — the cluster simply stops running it</text>
+      </svg>
+    </div>
+    <figcaption>
+      <b>Both failure paths lead to the same place.</b> Whether the new pod never becomes ready or
+      becomes ready but serves the wrong thing, the pipeline runs <code>rollout undo</code> and
+      the previous ReplicaSet is scaled back up.
+    </figcaption>
+  </figure>
+
+  <div class="note warn">
+    <span class="tag">Known limits of this setup</span>
+    <p>
+      <code>replicas: 1</code> means there is no redundancy: during a restart there is a brief
+      gap, and a node failure takes the site down until the pod is rescheduled. There is also no
+      Ingress in these manifests, so the Service is reachable only from inside the cluster.
+      Both are reasonable for a demo namespace and both are the first things to change for real
+      traffic.
+    </p>
+  </div>
+</section>
+<section id="local">
+  <h2>11 &nbsp;Run it locally</h2>
+  <p class="srcref">Node 20 or newer required</p>
+
+  <h4>Develop</h4>
+<pre>npm ci                      <span class="c"># install exactly what the lockfile says</span>
+npm run dev                 <span class="c"># http://localhost:5173</span></pre>
+  <p>
+    The dev server proxies <code>/api</code> to <code>http://localhost:8080</code>, so there is no
+    CORS setup and no API host written into the code. Point it elsewhere with
+    <code>VITE_DEV_API_TARGET=http://some-host:8080 npm run dev</code>.
+  </p>
+
+  <h4>Run the same checks CI runs</h4>
+<pre>npm run lint                <span class="c"># must produce zero warnings</span>
+npm run test                <span class="c"># unit tests</span>
+npm run test:coverage       <span class="c"># tests + coverage/lcov.info</span>
+npm run build               <span class="c"># produces dist/</span>
+npm run preview             <span class="c"># serve the built bundle on :3000</span></pre>
+  <p>Running these before you push is the cheapest way to avoid a red pipeline.</p>
+
+  <h4>Build and run the real image</h4>
+<pre>docker build -t frontend:local .
+
+docker run --rm -p 3000:3000 \
+  -e API_BASE_URL=http://localhost:8080 \
+  -e APP_ENV=dev \
+  frontend:local
+
+<span class="c"># then check the two things the cluster checks:</span>
+curl -i http://localhost:3000/healthz
+curl -s http://localhost:3000/runtime-config.js</pre>
+  <p>
+    The second command is the useful one &mdash; it shows you the exact file the entrypoint
+    generated, which is where nine out of ten "the app can't reach the API" problems turn out to
+    be.
+  </p>
+
+  <h4>Scan it the way the pipeline does</h4>
+<pre>docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+  aquasec/trivy:latest image --severity CRITICAL --ignore-unfixed frontend:local</pre>
+</section>
+
+<section id="setup">
+  <h2>12 &nbsp;Set it up yourself</h2>
+  <p class="srcref">One-time AWS and GitHub configuration &mdash; do it in this order</p>
+
+  <p>
+    If you are wiring this pipeline to a fresh AWS account, these are the six steps. Steps 2 and 3
+    are the ones that replace an access key, so take them slowly.
+  </p>
+
+  <h3>1 &mdash; Create the ECR repository</h3>
+<pre>aws ecr create-repository \
+  --repository-name ai-interview-dev-platform/frontend \
+  --region ap-south-1 \
+  --image-scanning-configuration scanOnPush=true</pre>
+
+  <h3>2 &mdash; Register GitHub as an identity provider (once per AWS account)</h3>
+<pre>aws iam create-open-id-connect-provider \
+  --url https://token.actions.githubusercontent.com \
+  --client-id-list sts.amazonaws.com</pre>
+  <p>
+    This is what tells AWS "tokens signed by GitHub are worth reading". It grants nothing on its
+    own &mdash; permission still comes entirely from the next step.
+  </p>
+
+  <h3>3 &mdash; Create the role with its trust policy</h3>
+  <p>
+    Save the trust policy from <a href="#keyless">section 04</a> as
+    <code>trust.json</code>, replacing <code>&lt;ACCOUNT_ID&gt;</code> and the repository name,
+    then:
+  </p>
+<pre>aws iam create-role \
+  --role-name gh-deploy-frontend \
+  --assume-role-policy-document file://trust.json
+
+aws iam put-role-policy \
+  --role-name gh-deploy-frontend \
+  --policy-name deploy-permissions \
+  --policy-document file://permissions.json   <span class="c"># from section 07</span></pre>
+
+  <div class="note bad">
+    <span class="tag">Check before you continue</span>
+    <p>
+      Open the trust policy once more and confirm the <code>sub</code> is the full, exact string
+      &mdash; and that it uses the <code>environment:production</code> form, because the deploy
+      job declares an environment. A wildcard here is the difference between "only my pipeline"
+      and "anyone on GitHub".
+    </p>
+  </div>
+
+  <h3>4 &mdash; Let the role into the cluster</h3>
+  <p>Run the two <code>access-entry</code> commands from <a href="#iam">section 07</a>. Then verify:</p>
+<pre>aws eks list-access-entries --cluster-name ai-interview
+kubectl create namespace demo   <span class="c"># if it doesn't exist yet</span></pre>
+
+  <h3>5 &mdash; Add the GitHub configuration</h3>
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>Where</th><th>Name</th><th>Value</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Settings &rarr; Environments</td><td class="mono">production</td><td>create it; add required reviewers if you want a human approval before deploys</td></tr>
+        <tr><td>Environment secrets</td><td class="mono">AWS_DEPLOY_ROLE_ARN</td><td><code>arn:aws:iam::&lt;ACCOUNT_ID&gt;:role/gh-deploy-frontend</code></td></tr>
+        <tr><td>Repository secrets</td><td class="mono">SONAR_TOKEN</td><td>from SonarCloud &rarr; My Account &rarr; Security</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    Adjust the four values at the top of <code>ci.yml</code> &mdash; <code>AWS_REGION</code>,
+    <code>EKS_CLUSTER</code>, <code>K8S_NAMESPACE</code>, <code>ECR_REPO</code> &mdash; and the
+    two keys in <code>sonar-project.properties</code>, to match your own account.
+  </p>
+
+  <h3>6 &mdash; Try it</h3>
+  <p>
+    Use <strong>Actions &rarr; CI/CD frontend &rarr; Run workflow</strong> for the first attempt
+    rather than pushing. It exercises the identical path but on your schedule, and the "Check
+    config" step will tell you immediately if a secret is missing.
+  </p>
+
+  <div class="note warn">
+    <span class="tag">One inconsistency to be aware of</span>
+    <p>
+      The workflow triggers on both <code>main</code> and <code>master</code>, but the deploy job
+      only runs when the ref is <code>refs/heads/master</code>. On a repository whose default
+      branch is <code>main</code>, all the checks will run and the deploy will be silently
+      skipped. If that is not what you want, change the <code>if:</code> condition in the deploy
+      job to match your branch.
+    </p>
+  </div>
+</section>
+
+<section id="trouble">
+  <h2>13 &nbsp;When it breaks</h2>
+  <p class="srcref">The failures you will actually meet, and what causes them</p>
+
+  <details>
+    <summary>Not authorized to perform sts:AssumeRoleWithWebIdentity</summary>
+    <p>Almost always the trust policy. In order of likelihood:</p>
+    <p>
+      1. The <code>sub</code> uses the branch form <code>…:ref:refs/heads/master</code> but the
+      job declares <code>environment: production</code>, so GitHub actually sent
+      <code>…:environment:production</code>. 2. The repository owner or name is misspelled &mdash;
+      it is case-sensitive. 3. The OIDC provider was never created in this account. 4. The
+      <code>aud</code> is not <code>sts.amazonaws.com</code>.
+    </p>
+    <p>
+      To see the real subject, add a step that prints
+      <code>${{ github.repository }}</code> and the event, and compare with the trust policy
+      character by character.
+    </p>
+  </details>
+
+  <details>
+    <summary>Credentials could not be loaded / no OIDC token available</summary>
+    <p>
+      The job is missing <code>permissions: id-token: write</code>. Job-level permissions replace
+      the workflow default entirely, so if you add a <code>permissions:</code> block to a job you
+      must list <em>every</em> permission that job needs, including <code>contents: read</code>.
+    </p>
+  </details>
+
+  <details>
+    <summary>The pod is stuck in ImagePullBackOff</summary>
+    <p>
+      Either the <code>sed</code> did not substitute the image (the pod is literally trying to
+      pull <code>IMAGE_PLACEHOLDER</code> &mdash; the pipeline's <code>grep</code> guard exists to
+      catch exactly this), or the cluster's node role lacks
+      <code>AmazonEC2ContainerRegistryReadOnly</code> and cannot pull from ECR. Check with
+      <code>kubectl describe pod -n demo -l app=frontend</code> and read the events at the bottom.
+    </p>
+  </details>
+
+  <details>
+    <summary>rollout status timed out after 5 minutes</summary>
+    <p>
+      The new pod never became ready. Usually the readiness probe: nginx is not answering
+      <code>/healthz</code> on port 3000, or the container crashed at start. Look at
+      <code>kubectl logs -n demo -l app=frontend --tail=50</code>. The pipeline has already rolled
+      back by the time you read this, so the site is fine &mdash; you are debugging the new image,
+      not an outage.
+    </p>
+  </details>
+
+  <details>
+    <summary>Trivy fails the build on a CRITICAL vulnerability</summary>
+    <p>
+      This is the gate working. Fix it by bumping the base image in the <code>Dockerfile</code>
+      (<code>node:…-alpine</code> and <code>nginx:…-alpine</code>) or the offending npm package,
+      then push again. Resist adding an ignore file as the first move &mdash; if you must, record
+      why and set an expiry date.
+    </p>
+  </details>
+
+  <details>
+    <summary>Gitleaks found a secret</summary>
+    <p>
+      Removing the line and committing again will <em>not</em> help: the old commit still contains
+      it and Gitleaks reads the whole history. Treat the secret as compromised and rotate it
+      first &mdash; that is the part that actually protects you. Only then rewrite history
+      (<code>git filter-repo</code>) if you need the scan to pass.
+    </p>
+  </details>
+
+  <details>
+    <summary>Login fails with "the server returned a web page instead of data"</summary>
+    <p>
+      Expected in the <code>demo</code> namespace as it stands. <code>API_BASE_URL</code> is
+      empty, meaning same-origin, but nothing routes <code>/api</code> to a backend yet &mdash; so
+      nginx answers with the SPA fallback (<code>index.html</code>, HTTP 200) and the app receives
+      HTML where it expected JSON. Add an Ingress that routes <code>/api</code> to the middleware,
+      or point <code>API_BASE_URL</code> at a reachable API.
+    </p>
+  </details>
+
+  <details>
+    <summary>I changed the ConfigMap and nothing happened</summary>
+    <p>
+      Correct behaviour, not a bug. The Deployment is unchanged, so Kubernetes has nothing to do.
+      Run <code>kubectl rollout restart deployment/frontend -n demo</code>.
+    </p>
+  </details>
+
+  <details>
+    <summary>Useful commands when you are stuck</summary>
+<pre>kubectl get pods -n demo -l app=frontend
+kubectl describe pod -n demo -l app=frontend
+kubectl logs -n demo -l app=frontend --tail=100
+kubectl get deploy frontend -n demo -o jsonpath='{.spec.template.spec.containers[0].image}'
+kubectl rollout history deployment/frontend -n demo
+kubectl port-forward -n demo svc/frontend 8081:80    <span class="c"># then open localhost:8081</span></pre>
+  </details>
+</section>
+
+<section id="glossary">
+  <h2>14 &nbsp;Glossary</h2>
+  <p class="srcref">Every term on this page, in one place</p>
+
+  <dl class="gloss">
+    <div><dt>Action</dt><dd>A reusable step someone else published, referenced by name and version, e.g. <code>actions/checkout@v4</code>.</dd></div>
+    <div><dt>Artifact</dt><dd>Something a build produces. Here: the <code>dist/</code> folder, and the container image.</dd></div>
+    <div><dt>ARN</dt><dd>Amazon Resource Name &mdash; the unique identifier of any AWS thing.</dd></div>
+    <div><dt>aud (audience)</dt><dd>The claim in a token saying who it is meant for. Must be <code>sts.amazonaws.com</code> so a token issued for something else cannot be replayed at AWS.</dd></div>
+    <div><dt>CI / CD</dt><dd>Continuous Integration (build and test every change) / Continuous Deployment (ship it automatically when the checks pass).</dd></div>
+    <div><dt>Claim</dt><dd>A statement inside a token &mdash; who issued it, who it is for, which repository and branch it came from.</dd></div>
+    <div><dt>ConfigMap</dt><dd>A Kubernetes object holding non-secret settings as key/value pairs.</dd></div>
+    <div><dt>Container</dt><dd>A running instance of an image, isolated from the host.</dd></div>
+    <div><dt>CVE</dt><dd>A publicly catalogued vulnerability with an ID like <code>CVE-2024-1234</code>. What Trivy looks for.</dd></div>
+    <div><dt>Deployment</dt><dd>The Kubernetes object that keeps N copies of a pod running and replaces them safely on update.</dd></div>
+    <div><dt>Digest</dt><dd>The cryptographic hash of an image's exact contents. Two identical digests are the same bytes.</dd></div>
+    <div><dt>ECR</dt><dd>Elastic Container Registry &mdash; AWS's private image storage.</dd></div>
+    <div><dt>EKS</dt><dd>Elastic Kubernetes Service &mdash; Kubernetes with the control plane run by AWS.</dd></div>
+    <div><dt>Environment</dt><dd>A named GitHub deployment target that can hold its own secrets and require approval before a job runs.</dd></div>
+    <div><dt>IAM</dt><dd>Identity and Access Management &mdash; AWS's system for who may do what.</dd></div>
+    <div><dt>Image</dt><dd>A sealed, layered filesystem plus a start command. Runs the same everywhere.</dd></div>
+    <div><dt>Ingress</dt><dd>The Kubernetes object that exposes services to the outside world and routes by hostname and path. Not present in this repo yet.</dd></div>
+    <div><dt>Job</dt><dd>A group of steps in a workflow that runs on one machine. Jobs run in parallel unless linked by <code>needs</code>.</dd></div>
+    <div><dt>JWT</dt><dd>JSON Web Token &mdash; a signed block of claims. The OIDC token is one.</dd></div>
+    <div><dt>Lockfile</dt><dd><code>package-lock.json</code>: the exact version of every dependency and sub-dependency. What makes builds reproducible.</dd></div>
+    <div><dt>Least privilege</dt><dd>Granting the minimum permissions needed for the job and nothing more.</dd></div>
+    <div><dt>Manifest</dt><dd>A YAML file describing a Kubernetes object.</dd></div>
+    <div><dt>Namespace</dt><dd>A named partition inside a cluster. This app lives in <code>demo</code>.</dd></div>
+    <div><dt>OIDC</dt><dd>OpenID Connect &mdash; the standard that lets one system prove its identity to another using a signed, expiring token instead of a shared password.</dd></div>
+    <div><dt>Pod</dt><dd>The smallest unit Kubernetes runs: one or more containers sharing an address and lifecycle.</dd></div>
+    <div><dt>Probe</dt><dd>A periodic health check. Liveness restarts a sick container; readiness withholds traffic from one that isn't ready.</dd></div>
+    <div><dt>ReplicaSet</dt><dd>The object a Deployment creates to hold one specific version of a pod. Rollback means switching back to the previous one.</dd></div>
+    <div><dt>Rollback</dt><dd>Returning to the previously working version. Here: <code>kubectl rollout undo</code>, run automatically on failure.</dd></div>
+    <div><dt>Runner</dt><dd>The temporary virtual machine GitHub Actions runs a job on. Created fresh, destroyed after.</dd></div>
+    <div><dt>Secret</dt><dd>In GitHub: an encrypted value exposed to workflows and masked in logs. In Kubernetes: an object for sensitive values &mdash; not used by this frontend, which has nothing secret.</dd></div>
+    <div><dt>Service</dt><dd>A stable in-cluster address that load-balances across the pods matching its selector.</dd></div>
+    <div><dt>SHA</dt><dd>The 40-character hash identifying a git commit. Used here as the image tag.</dd></div>
+    <div><dt>SPA fallback</dt><dd>Serving <code>index.html</code> for any unknown path so client-side routing works on a page refresh.</dd></div>
+    <div><dt>STS</dt><dd>Security Token Service &mdash; the AWS service that issues temporary credentials.</dd></div>
+    <div><dt>sub (subject)</dt><dd>The claim saying who a token is about. For GitHub Actions it encodes the repository plus the branch or environment. The single most important line in the trust policy.</dd></div>
+    <div><dt>Trust policy</dt><dd>The rule on an IAM role saying who is allowed to assume it, and under what conditions.</dd></div>
+    <div><dt>Workflow</dt><dd>A YAML file under <code>.github/workflows/</code> describing when to run jobs and what they do.</dd></div>
+  </dl>
+</section>
+
+  </main>
+</div>
+
+<footer>
+  Generated from the repository itself &mdash; <code>.github/workflows/ci.yml</code>,
+  <code>Dockerfile</code>, <code>nginx.conf</code>, <code>k8s/</code>, <code>vite.config.js</code>.<br>
+  If the pipeline changes, change this page too.
+</footer>
