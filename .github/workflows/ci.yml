@@ -2,7 +2,7 @@ name: CI/CD frontend
 
 on:
   push:
-    branches: [main, master, dev]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -15,7 +15,7 @@ permissions:
 
 env:
   AWS_REGION: ap-south-1
-  EKS_CLUSTER: my-proj
+  EKS_CLUSTER: eks-mumbai
   K8S_NAMESPACE: demo
   ECR_REPO: ai-interview-dev-platform
 
