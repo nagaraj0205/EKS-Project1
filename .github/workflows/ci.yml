@@ -153,7 +153,7 @@ jobs:
       - name: Resolve image
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
-        run: echo "IMAGE=$REGISTRY/$ECR_REPO/frontend:$SHA" >> "$GITHUB_ENV"
+        run: echo "IMAGE=$REGISTRY/$ECR_REPO:$SHA" >> "$GITHUB_ENV"
 
       - name: Push
         run: |
