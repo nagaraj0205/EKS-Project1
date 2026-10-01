@@ -14,8 +14,8 @@ permissions:
   contents: read
 
 env:
-  AWS_REGION: ap-south-1
-  EKS_CLUSTER: eks-mumbai
+  AWS_REGION: ap-south-2
+  EKS_CLUSTER: eks-cluster
   K8S_NAMESPACE: demo
   ECR_REPO: prod-eks-frontend
 
