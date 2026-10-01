@@ -10,8 +10,8 @@ permissions:
   contents: read
 
 env:
-   AWS_REGION: ap-south-1        # cluster ap-south-1 la irukku, us-west-2 illa
-   CLUSTER: eks-mumbai
+   AWS_REGION: ap-south-2       # cluster ap-south-1 la irukku, us-west-2 illa
+   CLUSTER: eks-cluster
    NS: default
 
 jobs:
