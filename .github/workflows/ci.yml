@@ -139,7 +139,7 @@ jobs:
       - name: Update application image
         run: |
           kubectl set image deployment/frontend \
-            myapp=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+            frontend=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
 
       - name: Wait for rollout
         run: |
@@ -174,19 +174,19 @@ jobs:
         run: |
           kubectl get nodes
           kubectl get pods -A
-          kubectl get deployment myapp
+          kubectl get deployment frontend
 
       - name: Verify rollout status
         run: |
-          kubectl rollout status deployment/myapp --timeout=300s
+          kubectl rollout status deployment/frontend --timeout=300s
 
       - name: Application health check
         run: |
           echo "Running application health check via service endpoint"
           # Get the LoadBalancer hostname or ClusterIP string dynamically
-          SVC_IP=$(kubectl get svc myapp -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          SVC_IP=$(kubectl get svc frontend -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
           if [ -z "$SVC_IP" ]; then
-            SVC_IP=$(kubectl get svc myapp -o jsonpath='{.spec.clusterIP}')
+            SVC_IP=$(kubectl get svc frontend -o jsonpath='{.spec.clusterIP}')
           fi
           echo "Target Address: http://$SVC_IP"
           # Simple endpoint check (ignoring structural TLS validation placeholders if needed)
