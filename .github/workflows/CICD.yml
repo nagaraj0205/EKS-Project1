@@ -1,0 +1,411 @@
+name: EKS CI/CD
+
+on:
+
+  # PR validation
+  pull_request:
+    branches:
+      - testing
+      - main
+
+  # Deployment after merge
+  push:
+    branches:
+      - testing
+      - main
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: ap-south-2
+  EKS_CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
+  ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+
+# ==========================================================
+# 1. CI VALIDATION
+# ==========================================================
+
+jobs:
+
+  ci:
+    name: CI Validation
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # ----------------------------------------------------
+      # Install application dependencies
+      # ----------------------------------------------------
+
+      - name: Install dependencies
+        run: |
+          if [ -f package.json ]; then
+            npm ci
+          elif [ -f requirements.txt ]; then
+            python -m pip install --upgrade pip
+            pip install -r requirements.txt
+          fi
+
+      # ----------------------------------------------------
+      # Run tests
+      # ----------------------------------------------------
+
+      - name: Run tests
+        run: |
+          if [ -f package.json ]; then
+            npm test --if-present
+          elif [ -f pytest.ini ] || [ -d tests ]; then
+            pytest
+          else
+            echo "No automated tests configured"
+          fi
+
+      # ----------------------------------------------------
+      # Build application
+      # ----------------------------------------------------
+
+      - name: Build application
+        run: |
+          if [ -f package.json ]; then
+            npm run build --if-present
+          else
+            echo "No application build command configured"
+          fi
+
+      # ----------------------------------------------------
+      # Docker build validation
+      # ----------------------------------------------------
+
+      - name: Docker build validation
+        run: |
+          docker build \
+            -t eks-project1:${{ github.sha }} .
+
+# ==========================================================
+# 2. BUILD AND PUSH IMAGE
+# ==========================================================
+
+  docker:
+    name: Build and Push Docker Image
+
+    needs: ci
+
+    # Only push image after code reaches testing/main
+    if: |
+      github.event_name == 'push' &&
+      (
+        github.ref == 'refs/heads/testing' ||
+        github.ref == 'refs/heads/main'
+      )
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # ----------------------------------------------------
+      # AWS authentication
+      # ----------------------------------------------------
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+
+      # ----------------------------------------------------
+      # ECR login
+      # ----------------------------------------------------
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ----------------------------------------------------
+      # Build image
+      # ----------------------------------------------------
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t ${{ secrets.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }} .
+
+      # ----------------------------------------------------
+      # Push image
+      # ----------------------------------------------------
+
+      - name: Push Docker image
+        run: |
+          docker push \
+            ${{ secrets.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+
+# ==========================================================
+# 3. TESTING DEPLOYMENT
+# ==========================================================
+
+  deploy-testing:
+    name: Deploy to Testing
+
+    needs: docker
+
+    if: github.ref == 'refs/heads/testing'
+
+    runs-on: ubuntu-latest
+
+    environment:
+      name: testing
+
+    steps:
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # ----------------------------------------------------
+      # AWS authentication
+      # ----------------------------------------------------
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+
+      # ----------------------------------------------------
+      # Configure kubectl
+      # ----------------------------------------------------
+
+      - name: Configure EKS
+        run: |
+          aws eks update-kubeconfig \
+            --region $AWS_REGION \
+            --name $EKS_CLUSTER_NAME
+
+      # ----------------------------------------------------
+      # Deploy
+      # ----------------------------------------------------
+
+      - name: Deploy application
+        run: |
+          kubectl apply -f k8s/
+
+      # ----------------------------------------------------
+      # Update image
+      # ----------------------------------------------------
+
+      - name: Update application image
+        run: |
+          kubectl set image deployment/myapp \
+            myapp=${{ secrets.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+
+      # ----------------------------------------------------
+      # Wait for deployment
+      # ----------------------------------------------------
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status \
+            deployment/myapp \
+            --timeout=300s
+
+# ==========================================================
+# 4. TEST TESTING ENVIRONMENT
+# ==========================================================
+
+  testing-validation:
+    name: Testing Validation
+
+    needs: deploy-testing
+
+    if: github.ref == 'refs/heads/testing'
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # ----------------------------------------------------
+      # Configure AWS
+      # ----------------------------------------------------
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+
+      # ----------------------------------------------------
+      # Configure Kubernetes
+      # ----------------------------------------------------
+
+      - name: Configure EKS
+        run: |
+          aws eks update-kubeconfig \
+            --region $AWS_REGION \
+            --name $EKS_CLUSTER_NAME
+
+      # ----------------------------------------------------
+      # Check nodes
+      # ----------------------------------------------------
+
+      - name: Check nodes
+        run: |
+          kubectl get nodes
+
+      # ----------------------------------------------------
+      # Check pods
+      # ----------------------------------------------------
+
+      - name: Check pods
+        run: |
+          kubectl get pods -A
+
+      # ----------------------------------------------------
+      # Check deployment
+      # ----------------------------------------------------
+
+      - name: Check deployment
+        run: |
+          kubectl get deployment myapp
+
+      # ----------------------------------------------------
+      # Check rollout
+      # ----------------------------------------------------
+
+      - name: Verify rollout
+        run: |
+          kubectl rollout status \
+            deployment/myapp \
+            --timeout=300s
+
+      # ----------------------------------------------------
+      # Application health check
+      # ----------------------------------------------------
+
+      - name: Application health check
+        run: |
+          echo "Running application health check"
+
+          # Replace with your actual testing URL
+          curl --fail \
+            --retry 5 \
+            --retry-delay 5 \
+            https://YOUR-TESTING-URL/health
+
+      # ----------------------------------------------------
+      # Smoke test
+      # ----------------------------------------------------
+
+      - name: Smoke test
+        run: |
+          curl --fail \
+            --retry 5 \
+            --retry-delay 5 \
+            https://YOUR-TESTING-URL/
+
+# ==========================================================
+# 5. PRODUCTION DEPLOYMENT
+# ==========================================================
+
+  deploy-production:
+    name: Deploy to Production
+
+    needs:
+      - ci
+      - docker
+
+    # Only execute after main receives the approved PR
+    if: github.ref == 'refs/heads/main'
+
+    runs-on: ubuntu-latest
+
+    # =====================================================
+    # MANUAL PRODUCTION APPROVAL
+    # =====================================================
+
+    environment:
+      name: production
+
+    steps:
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # ----------------------------------------------------
+      # AWS authentication
+      # ----------------------------------------------------
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_PROD_ROLE_ARN }}
+
+      # ----------------------------------------------------
+      # Configure EKS
+      # ----------------------------------------------------
+
+      - name: Configure production EKS
+        run: |
+          aws eks update-kubeconfig \
+            --region $AWS_REGION \
+            --name ${{ secrets.PROD_EKS_CLUSTER_NAME }}
+
+      # ----------------------------------------------------
+      # Deploy
+      # ----------------------------------------------------
+
+      - name: Deploy production
+        run: |
+          kubectl apply -f k8s/
+
+      # ----------------------------------------------------
+      # Update production image
+      # ----------------------------------------------------
+
+      - name: Update production image
+        run: |
+          kubectl set image deployment/myapp \
+            myapp=${{ secrets.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+
+      # ----------------------------------------------------
+      # Wait for rollout
+      # ----------------------------------------------------
+
+      - name: Production rollout
+        run: |
+          kubectl rollout status \
+            deployment/myapp \
+            --timeout=300s
+
+      # ----------------------------------------------------
+      # Production health check
+      # ----------------------------------------------------
+
+      - name: Production health check
+        run: |
+          curl --fail \
+            --retry 5 \
+            --retry-delay 5 \
+            https://YOUR-PRODUCTION-URL/health
+
+      # ----------------------------------------------------
+      # Production verification
+      # ----------------------------------------------------
+
+      - name: Verify production pods
+        run: |
+          kubectl get pods -A
+
+      - name: Verify production service
+        run: |
+          kubectl get svc -A
