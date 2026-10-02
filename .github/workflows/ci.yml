@@ -22,8 +22,8 @@ permissions:
 
 env:
   AWS_REGION: ap-south-2
-  EKS_CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
-  ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+  EKS_CLUSTER_NAME: eks-cluster
+  ECR_REPOSITORY: prod-eks-frontend
 
 # ==========================================================
 # 1. CI VALIDATION
@@ -137,7 +137,7 @@ jobs:
       - name: Build Docker image
         run: |
           docker build \
-            -t ${{ secrets.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }} .
+            -t ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }} .
 
       # ----------------------------------------------------
       # Push image
@@ -146,7 +146,7 @@ jobs:
       - name: Push Docker image
         run: |
           docker push \
-            ${{ secrets.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
 
 # ==========================================================
 # 3. TESTING DEPLOYMENT
@@ -204,7 +204,7 @@ jobs:
       - name: Update application image
         run: |
           kubectl set image deployment/myapp \
-            myapp=${{ secrets.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+            myapp=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
 
       # ----------------------------------------------------
       # Wait for deployment
