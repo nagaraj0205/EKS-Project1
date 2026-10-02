@@ -128,6 +128,7 @@ jobs:
       # ----------------------------------------------------
 
       - name: Login to Amazon ECR
+        id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
       # ----------------------------------------------------
@@ -376,7 +377,7 @@ jobs:
       - name: Update production image
         run: |
           kubectl set image deployment/myapp \
-            myapp=${{ secrets.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+            myapp=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
 
       # ----------------------------------------------------
       # Wait for rollout
