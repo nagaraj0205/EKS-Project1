@@ -65,6 +65,19 @@ jobs:
       - name: Docker build validation
         run: |
           docker build -t eks-project1:${{ github.sha }} .
+     
+      - name: Auto-Merge Feature to Testing
+        if: success() && startsWith(github.ref, 'refs/heads/feature/')
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@://github.com"
+          
+          # Switch to testing and merge the current feature commit
+          git checkout testing
+          git merge ${{ github.sha }} --no-ff -m "Auto-merged feature branch via CI success"
+          
+          # Push the merge to remote (This will instantly fire your 'docker' and 'deploy-testing' jobs in a new run!)
+          git push origin testing
 
 # ==========================================================
 # 2. BUILD AND PUSH IMAGE (Only runs on merges/pushes to testing or main)
