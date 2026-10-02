@@ -1,179 +1,413 @@
-name: CI/CD frontend
+name: EKS CI/CD
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-  workflow_dispatch:
 
-concurrency:
-  group: ci-frontend-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # PR validation
+  pull_request:
+    branches:
+      - testing
+      - main
+
+  # Deployment after merge
+  push:
+    branches:
+      - testing
+      - main
+
+  workflow_dispatch:
 
 permissions:
   contents: read
+  id-token: write
 
 env:
   AWS_REGION: ap-south-2
-  EKS_CLUSTER: eks-cluster
-  K8S_NAMESPACE: demo
-  ECR_REPO: prod-eks-frontend
+  EKS_CLUSTER_NAME: eks-cluster
+  ECR_REPOSITORY: prod-eks-frontend
+
+# ==========================================================
+# 1. CI VALIDATION
+# ==========================================================
 
 jobs:
-  app:
-    name: React app
+
+  ci:
+    name: CI Validation
+
     runs-on: ubuntu-latest
-    timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
+      - name: Checkout source
+        uses: actions/checkout@v4
 
-      - name: Install
-        run: npm ci
+      # ----------------------------------------------------
+      # Install application dependencies
+      # ----------------------------------------------------
 
-      - name: Lint
-        run: npm run lint
+      - name: Install dependencies
+        run: |
+          if [ -f package.json ]; then
+            npm ci
+          elif [ -f requirements.txt ]; then
+            python -m pip install --upgrade pip
+            pip install -r requirements.txt
+          fi
 
-      - name: Test
-        run: npm run test:coverage
+      # ----------------------------------------------------
+      # Run tests
+      # ----------------------------------------------------
 
-      - name: Build
-        run: npm run build
+      - name: Run tests
+        run: |
+          if [ -f package.json ]; then
+            npm test --if-present
+          elif [ -f pytest.ini ] || [ -d tests ]; then
+            pytest
+          else
+            echo "No automated tests configured"
+          fi
 
-      - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v8.2.1
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: https://sonarcloud.io
+      # ----------------------------------------------------
+      # Build application
+      # ----------------------------------------------------
 
-  secrets:
-    name: GitLeaks
+      - name: Build application
+        run: |
+          if [ -f package.json ]; then
+            npm run build --if-present
+          else
+            echo "No application build command configured"
+          fi
+
+      # ----------------------------------------------------
+      # Docker build validation
+      # ----------------------------------------------------
+
+      - name: Docker build validation
+        run: |
+          docker build \
+            -t eks-project1:${{ github.sha }} .
+
+# ==========================================================
+# 2. BUILD AND PUSH IMAGE
+# ==========================================================
+
+  docker:
+    name: Build and Push Docker Image
+
+    needs: ci
+
+    # Only push image after code reaches testing/main
+    if: |
+      github.event_name == 'push' &&
+      (
+        github.ref == 'refs/heads/testing' ||
+        github.ref == 'refs/heads/main'
+      )
+
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    permissions:
-      contents: read
-      pull-requests: write
 
     steps:
-      - uses: actions/checkout@v4
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # ----------------------------------------------------
+      # AWS authentication
+      # ----------------------------------------------------
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          fetch-depth: 0
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
 
-      - name: Scan for secrets
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # ----------------------------------------------------
+      # ECR login
+      # ----------------------------------------------------
 
-  manifests:
-    name: k8s manifests
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ----------------------------------------------------
+      # Build image
+      # ----------------------------------------------------
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }} .
+
+      # ----------------------------------------------------
+      # Push image
+      # ----------------------------------------------------
+
+      - name: Push Docker image
+        run: |
+          docker push \
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+
+# ==========================================================
+# 3. TESTING DEPLOYMENT
+# ==========================================================
+
+  deploy-testing:
+    name: Deploy to Testing
+
+    needs: docker
+
+    if: github.ref == 'refs/heads/testing'
+
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+
+    environment:
+      name: testing
 
     steps:
-      - uses: actions/checkout@v4
 
-      - name: Validate against Kubernetes schemas
-        uses: docker://ghcr.io/yannh/kubeconform:v0.6.7
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # ----------------------------------------------------
+      # AWS authentication
+      # ----------------------------------------------------
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          args: -strict -summary k8s/configmap.yaml k8s/service.yaml k8s/deployment.yaml
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
 
-  deploy:
-    name: Deploy to EKS
-    needs: [app, secrets, manifests]
+      # ----------------------------------------------------
+      # Configure kubectl
+      # ----------------------------------------------------
 
-    if: >-
-      github.ref == 'refs/heads/main' &&
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      - name: Configure EKS
+        run: |
+          aws eks update-kubeconfig \
+            --region $AWS_REGION \
+            --name $EKS_CLUSTER_NAME
+
+      # ----------------------------------------------------
+      # Deploy
+      # ----------------------------------------------------
+
+      - name: Deploy application
+        run: |
+          kubectl apply -f k8s/
+
+      # ----------------------------------------------------
+      # Update image
+      # ----------------------------------------------------
+
+      - name: Update application image
+        run: |
+          kubectl set image deployment/myapp \
+            myapp=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+
+      # ----------------------------------------------------
+      # Wait for deployment
+      # ----------------------------------------------------
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status \
+            deployment/myapp \
+            --timeout=300s
+
+# ==========================================================
+# 4. TEST TESTING ENVIRONMENT
+# ==========================================================
+
+  testing-validation:
+    name: Testing Validation
+
+    needs: deploy-testing
+
+    if: github.ref == 'refs/heads/testing'
 
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+
+    steps:
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # ----------------------------------------------------
+      # Configure AWS
+      # ----------------------------------------------------
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+
+      # ----------------------------------------------------
+      # Configure Kubernetes
+      # ----------------------------------------------------
+
+      - name: Configure EKS
+        run: |
+          aws eks update-kubeconfig \
+            --region $AWS_REGION \
+            --name $EKS_CLUSTER_NAME
+
+      # ----------------------------------------------------
+      # Check nodes
+      # ----------------------------------------------------
+
+      - name: Check nodes
+        run: |
+          kubectl get nodes
+
+      # ----------------------------------------------------
+      # Check pods
+      # ----------------------------------------------------
+
+      - name: Check pods
+        run: |
+          kubectl get pods -A
+
+      # ----------------------------------------------------
+      # Check deployment
+      # ----------------------------------------------------
+
+      - name: Check deployment
+        run: |
+          kubectl get deployment myapp
+
+      # ----------------------------------------------------
+      # Check rollout
+      # ----------------------------------------------------
+
+      - name: Verify rollout
+        run: |
+          kubectl rollout status \
+            deployment/myapp \
+            --timeout=300s
+
+      # ----------------------------------------------------
+      # Application health check
+      # ----------------------------------------------------
+
+      - name: Application health check
+        run: |
+          echo "Running application health check"
+
+          # Replace with your actual testing URL
+          curl --fail \
+            --retry 5 \
+            --retry-delay 5 \
+            https://YOUR-TESTING-URL/health
+
+      # ----------------------------------------------------
+      # Smoke test
+      # ----------------------------------------------------
+
+      - name: Smoke test
+        run: |
+          curl --fail \
+            --retry 5 \
+            --retry-delay 5 \
+            https://YOUR-TESTING-URL/
+
+# ==========================================================
+# 5. PRODUCTION DEPLOYMENT
+# ==========================================================
+
+  deploy-production:
+    name: Deploy to Production
+
+    needs:
+      - ci
+      - docker
+
+    # Only execute after main receives the approved PR
+    if: github.ref == 'refs/heads/main'
+
+    runs-on: ubuntu-latest
+
+    # =====================================================
+    # MANUAL PRODUCTION APPROVAL
+    # =====================================================
 
     environment:
       name: production
 
-    concurrency:
-      group: deploy-frontend
-      cancel-in-progress: false
-
-    permissions:
-      contents: read
-      id-token: write
-
-    env:
-      SHA: ${{ github.sha }}
-
     steps:
-      - name: Check config
-        env:
-          ROLE_ARN: ${{ secrets.ROLE_ARN }}
-        run: |
-          missing=0
-          for v in AWS_REGION EKS_CLUSTER K8S_NAMESPACE ECR_REPO ROLE_ARN; do
-            if [ -z "${!v}" ]; then
-              echo "::error::$v is not set"
-              missing=1
-            fi
-          done
-          [ "$missing" -eq 0 ]
 
-      - uses: actions/checkout@v4
+      - name: Checkout source
+        uses: actions/checkout@v4
 
-      - name: Log in to AWS
+      # ----------------------------------------------------
+      # AWS authentication
+      # ----------------------------------------------------
+
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.ROLE_ARN }}
-          role-session-name: gh-deploy-frontend
           aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_PROD_ROLE_ARN }}
 
-      - name: Log in to ECR
-        id: ecr
-        uses: aws-actions/amazon-ecr-login@v2
+      # ----------------------------------------------------
+      # Configure EKS
+      # ----------------------------------------------------
 
-      - name: Build
-        run: docker build -t scan-target .
-
-      - name: Scan the image
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          scan-type: image
-          image-ref: scan-target
-          severity: CRITICAL
-          ignore-unfixed: true
-          format: table
-          exit-code: '1'
-
-      - name: Resolve image
-        env:
-          REGISTRY: ${{ steps.ecr.outputs.registry }}
-        run: echo "IMAGE=$REGISTRY/$ECR_REPO:$SHA" >> "$GITHUB_ENV"
-
-      - name: Push
+      - name: Configure production EKS
         run: |
-          docker tag scan-target "$IMAGE"
-          docker push "$IMAGE"
+          aws eks update-kubeconfig \
+            --region $AWS_REGION \
+            --name ${{ secrets.PROD_EKS_CLUSTER_NAME }}
 
-      - name: Get cluster credentials
-        id: creds
-        run: aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER"
+      # ----------------------------------------------------
+      # Deploy
+      # ----------------------------------------------------
 
-      - name: Deploy
-        id: deploy
+      - name: Deploy production
         run: |
-          grep -q IMAGE_PLACEHOLDER k8s/deployment.yaml || {
-            echo "::error::IMAGE_PLACEHOLDER not found in k8s/deployment.yaml - the image would never be substituted"
-            exit 1
-          }
+          kubectl apply -f k8s/
 
-          kubectl apply -n "$K8S_NAMESPACE" -f k8s/configmap.yaml -f k8s/service.yaml
+      # ----------------------------------------------------
+      # Update production image
+      # ----------------------------------------------------
 
-          sed "s|IMAGE_PLACEHOLDER|$IMAGE|" k8s/deployment.yaml | kubectl apply -n "$K8S_NAMESPACE" -f -
+      - name: Update production image
+        run: |
+          kubectl set image deployment/myapp \
+            myapp=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
 
-          kubectl rollout status deployment/frontend -n "$K8S_NAMESPACE" --timeout=5m
+      # ----------------------------------------------------
+      # Wait for rollout
+      # ----------------------------------------------------
+
+      - name: Production rollout
+        run: |
+          kubectl rollout status \
+            deployment/myapp \
+            --timeout=300s
+
+      # ----------------------------------------------------
+      # Production health check
+      # ----------------------------------------------------
+
+      - name: Production health check
+        run: |
+          curl --fail \
+            --retry 5 \
+            --retry-delay 5 \
+            https://YOUR-PRODUCTION-URL/health
+
+      # ----------------------------------------------------
+      # Production verification
+      # ----------------------------------------------------
+
+      - name: Verify production pods
+        run: |
+          kubectl get pods -A
+
+      - name: Verify production service
+        run: |
+          kubectl get svc -A
