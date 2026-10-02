@@ -138,12 +138,12 @@ jobs:
 
       - name: Update application image
         run: |
-          kubectl set image deployment/myapp \
+          kubectl set image deployment/frontend \
             myapp=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
 
       - name: Wait for rollout
         run: |
-          kubectl rollout status deployment/myapp --timeout=300s
+          kubectl rollout status deployment/frontend --timeout=300s
 
 # ==========================================================
 # 4. TEST TESTING ENVIRONMENT (Runs post-deployment validation)
@@ -230,9 +230,9 @@ jobs:
 
       - name: Update application image to Prod
         run: |
-          kubectl set image deployment/myapp \
-            myapp=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          kubectl set image deployment/frontend \
+            frontend=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
 
       - name: Wait for Prod rollout
         run: |
-          kubectl rollout status deployment/myapp --timeout=300s
+          kubectl rollout status deployment/frontend --timeout=300s
