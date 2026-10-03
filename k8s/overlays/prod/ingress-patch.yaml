@@ -1,0 +1,16 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: frontend
+  annotations:
+    alb.ingress.kubernetes.io/load-balancer-name: eks-frontend-prod
+    alb.ingress.kubernetes.io/tags: Environment=prod,Project=eks-project1
+
+    # ---- HTTPS (recommended for prod) -------------------------------------
+    # Needs an ACM certificate in the SAME region as the cluster (ap-south-2)
+    # and a DNS name pointing at the ALB. To enable, uncomment these three
+    # lines and set your certificate ARN:
+    #
+    # alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:ap-south-2:<account-id>:certificate/<id>
+    # alb.ingress.kubernetes.io/ssl-redirect: "443"

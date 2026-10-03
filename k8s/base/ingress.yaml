@@ -1,0 +1,39 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: frontend
+  labels:
+    app: frontend
+  annotations:
+    # internet-facing = a public ALB. Use `internal` for a private one.
+    alb.ingress.kubernetes.io/scheme: internet-facing
+
+    # ip, not instance: pods hold real VPC addresses, so the ALB reaches a
+    # pod directly instead of hopping through a NodePort on the node.
+    alb.ingress.kubernetes.io/target-type: ip
+
+    # The path the ALB polls to decide a pod is healthy. nginx answers it
+    # without touching the filesystem.
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
+
+    # Listen on 80. For HTTPS, see the commented block at the bottom of
+    # k8s/overlays/prod/ingress-patch.yaml.
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+
+    # Drain in-flight requests during a rollout before the pod is removed.
+    alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=30
+spec:
+  # Must match an IngressClass that exists in the cluster
+  # (`kubectl get ingressclass`). The AWS Load Balancer Controller creates "alb".
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  # The Service's port 80 (it forwards to the container's 3000).
+                  number: 80
