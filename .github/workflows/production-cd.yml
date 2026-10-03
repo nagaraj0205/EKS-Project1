@@ -1,0 +1,113 @@
+#==========================================================
+# 7. PRODUCTION DEPLOYMENT (merge to main + environment approval)
+#    Deploys the image that was built and validated on testing.
+# ==========================================================
+name: Production Deployment
+on:
+  push:
+    branches:
+      - main
+jobs:
+    
+  deploy-production:
+    name: Deploy to Production
+    needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # Required reviewers on the "production" environment = the deploy approval gate.
+    environment:
+      name: production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: read
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # The merge commit on main is a new SHA with no image. Find the testing
+      # commit that was merged by it; that commit's image was built and tested.
+      - name: Resolve the tested commit
+        id: tested
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TESTED_SHA=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" \
+            --jq '[.[] | select(.base.ref=="main" and .head.ref=="testing")][0].head.sha')
+          if [ -z "$TESTED_SHA" ] || [ "$TESTED_SHA" = "null" ]; then
+            echo "::error::main commit ${{ github.sha }} did not come from a testing -> main PR; refusing to deploy."
+            exit 1
+          fi
+          echo "sha=$TESTED_SHA" >> "$GITHUB_OUTPUT"
+          echo "Tested commit: $TESTED_SHA"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Verify the tested image exists in ECR
+        run: |
+          aws ecr describe-images \
+            --repository-name ${{ env.ECR_REPOSITORY }} \
+            --image-ids imageTag=${{ steps.tested.outputs.sha }} >/dev/null
+
+      - name: Configure EKS
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ env.AWS_REGION }} \
+            --name ${{ env.EKS_CLUSTER_NAME }}
+
+      - name: Deploy application to prod
+        id: deploy
+        run: |
+          IMAGE="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.tested.outputs.sha }}"
+          kubectl kustomize k8s/overlays/prod | sed "s|IMAGE_PLACEHOLDER|${IMAGE}|g" > rendered.yaml
+          if grep -q IMAGE_PLACEHOLDER rendered.yaml; then
+            echo "::error::IMAGE_PLACEHOLDER was not substituted"
+            exit 1
+          fi
+          kubectl apply -f rendered.yaml
+
+      - name: Wait for prod rollout
+        run: |
+          kubectl rollout status deployment/frontend -n prod --timeout=300s
+
+      - name: Show prod URL
+        run: |
+          for i in $(seq 1 30); do
+            HOST=$(kubectl get ingress frontend -n prod -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+            [ -n "$HOST" ] && break
+            sleep 10
+          done
+          echo "Prod URL: http://${HOST:-<ALB still provisioning>}"
+          echo "Prod URL: http://${HOST:-pending}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Prod smoke test
+        run: |
+          kubectl port-forward -n prod svc/frontend 8080:80 >/tmp/pf.log 2>&1 &
+          PF=$!
+          trap 'kill $PF 2>/dev/null || true' EXIT
+          for i in $(seq 1 20); do
+            curl -fsS http://localhost:8080/healthz >/dev/null 2>&1 && break
+            sleep 2
+          done
+          test "$(curl -fsS http://localhost:8080/healthz)" = "ok"
+          CONFIG=$(curl -fsS http://localhost:8080/runtime-config.js)
+          echo "$CONFIG" | grep -q 'appEnv: "prod"'
+
+      # Only after the apply step actually ran: a failure before it (bad
+      # approval, missing image) must not roll back the healthy release.
+      - name: Roll back on failure
+        if: failure() && steps.deploy.conclusion != 'skipped'
+        run: |
+          kubectl rollout undo deployment/frontend -n prod || true
+          kubectl rollout status deployment/frontend -n prod --timeout=300s || true
