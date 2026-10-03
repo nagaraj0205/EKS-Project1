@@ -76,7 +76,8 @@ jobs:
         run: |
           curl -s -o /dev/null -w 'component/show: %{http_code}\n' -u "$SONAR_TOKEN:" \
             "https://sonarcloud.io/api/components/show?component=nagaraj0205_EKS-Project1"
-      - name: SonarCloud scan
+      - name: SonarCloud scan (main only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: SonarSource/sonarqube-scan-action@v7
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
