@@ -12,6 +12,9 @@
 FROM node:22.12.0-alpine AS build
 WORKDIR /build
 
+# `npm ci` against the lockfile only: reproducible, and it fails rather than
+# silently resolving a new version. Copied separately so a source-only change
+# reuses the cached dependency layer.
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
@@ -22,6 +25,8 @@ RUN npm run build
 # ---------- Stage 2: runtime ----------
 FROM nginx:1.31.2-alpine AS runtime
 
+# Every directory nginx writes to must be owned by the unprivileged user, and
+# the default config is removed so only ours is served.
 RUN rm -f /etc/nginx/conf.d/default.conf /etc/nginx/nginx.conf \
     && mkdir -p /tmp/client_temp /tmp/proxy_temp /tmp/fastcgi_temp /tmp/uwsgi_temp /tmp/scgi_temp \
     && chown -R nginx:nginx /tmp/client_temp /tmp/proxy_temp /tmp/fastcgi_temp \
