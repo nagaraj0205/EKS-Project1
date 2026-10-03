@@ -156,7 +156,7 @@ jobs:
           echo "Approving PR #$PR_NUMBER..."
           gh pr review "$PR_NUMBER" --approve --body "Automated validation passed."
 
-          # 4. Instantly merge the PR into the testing branch
+          # 4.Instantly merge the PR into the testing branch
           echo "Auto-merging PR #$PR_NUMBER..."
           gh pr merge "$PR_NUMBER" --merge --delete-branch=false
 # ==========================================================
