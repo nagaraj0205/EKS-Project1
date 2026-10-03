@@ -152,11 +152,7 @@ jobs:
           PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
           fi
 
-          # 3. Automatically approve the PR (bypasses restriction flags)
-          echo "Approving PR #$PR_NUMBER..."
-          gh pr review "$PR_NUMBER" --approve --body "Automated validation passed."
-
-          # 4.Instantly merge the PR into the testing branch
+          # Instantly merge the PR into the testing branch
           echo "Auto-merging PR #$PR_NUMBER..."
           gh pr merge "$PR_NUMBER" --merge --delete-branch=false
 # ==========================================================
