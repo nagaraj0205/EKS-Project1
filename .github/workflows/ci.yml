@@ -186,8 +186,7 @@ jobs:
     needs: docker
     if: github.event_name == 'push' && github.ref == 'refs/heads/testing'
     runs-on: ubuntu-latest
-    environment:
-      name: testing
+  
     concurrency:
       group: deploy-testing
       cancel-in-progress: false
@@ -242,8 +241,6 @@ jobs:
     needs: [docker, deploy-testing]
     if: github.event_name == 'push' && github.ref == 'refs/heads/testing'
     runs-on: ubuntu-latest
-    environment:
-      name: testing
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
