@@ -3,10 +3,11 @@ name: EKS CI/CD
 # ==========================================================
 # FLOW
 #
-#   feature/*  --push-->  CI + SonarCloud  --(auto)-->  PR  feature -> testing   (no approval)
+#   feature/*  --push-->  CI (lint, tests, build)  --(auto)-->  PR  feature -> testing   (no approval)
 #   testing    --merge->  build image once -> deploy testing -> testing validation
 #                                                   --(auto)-->  PR  testing -> main   (approval required)
-#   main       --merge->  production environment approval -> deploy the SAME image tested on testing
+#   main       --merge->  CI + SonarCloud scan (main only) -> production environment approval
+#                                                   -> deploy the SAME image tested on testing
 #
 # The image is built exactly once (on the testing branch) and promoted unchanged to
 # prod. Prod never rebuilds, so prod runs the bytes that were tested.
@@ -39,7 +40,7 @@ env:
 
 jobs:
 # ==========================================================
-# 1. CI VALIDATION + SONARCLOUD (feature/*, testing, main, PRs)
+# 1. CI VALIDATION (feature/*, testing, main, PRs) + SonarCloud on main
 #    Job name "CI Validation" is a required status check on testing and main.
 # ==========================================================
   ci:
@@ -70,20 +71,21 @@ jobs:
 
       - name: Build application
         run: npm run build
-      - name: Check Sonar token access
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: |
-          curl -s -o /dev/null -w 'component/show: %{http_code}\n' -u "$SONAR_TOKEN:" \
-            "https://sonarcloud.io/api/components/show?component=nagaraj0205_EKS-Project1"
+
+      # The free SonarCloud plan analyzes the main branch only. Scanning other
+      # branches uploads a report that is discarded, and the quality-gate wait
+      # then fails with "Not authorized or project not found". So the scan runs
+      # on main only. Feature branches and testing are gated by lint, tests and
+      # the build above. If you upgrade the plan or make the Sonar project
+      # public, remove this `if` to scan every branch.
       - name: SonarCloud scan (main only)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: SonarSource/sonarqube-scan-action@v7
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
-          # Fail this job (and so block the PR / deployment) if the Sonar
-          # quality gate fails.
+          # Fail this job (and so block the production deployment, which needs
+          # this job) if the Sonar quality gate fails.
           args: >
             -Dsonar.qualitygate.wait=true
             -Dsonar.qualitygate.timeout=300
@@ -138,7 +140,7 @@ jobs:
             --base testing \
             --head "$BRANCH" \
             --title "Promote $BRANCH to testing" \
-            --body "CI validation and the SonarCloud quality gate passed on ${GITHUB_SHA}. Merging deploys to the testing environment. No approval is required."
+            --body "Lint, tests and build passed on ${GITHUB_SHA}. Merging deploys to the testing environment. No approval is required."
 
 # ==========================================================
 # 3. BUILD AND PUSH IMAGE (once, on merge to testing)
@@ -218,6 +220,18 @@ jobs:
       - name: Wait for rollout
         run: |
           kubectl rollout status deployment/frontend -n testing --timeout=300s
+
+      # The ALB takes a few minutes to provision on the first deploy; this
+      # never fails the job, it only reports the public address.
+      - name: Show testing URL
+        run: |
+          for i in $(seq 1 30); do
+            HOST=$(kubectl get ingress frontend -n testing -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+            [ -n "$HOST" ] && break
+            sleep 10
+          done
+          echo "Testing URL: http://${HOST:-<ALB still provisioning>}"
+          echo "Testing URL: http://${HOST:-pending}" >> "$GITHUB_STEP_SUMMARY"
 
 # ==========================================================
 # 5. TESTING VALIDATION (post-deploy tests against the testing environment)
@@ -389,6 +403,16 @@ jobs:
       - name: Wait for prod rollout
         run: |
           kubectl rollout status deployment/frontend -n prod --timeout=300s
+
+      - name: Show prod URL
+        run: |
+          for i in $(seq 1 30); do
+            HOST=$(kubectl get ingress frontend -n prod -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+            [ -n "$HOST" ] && break
+            sleep 10
+          done
+          echo "Prod URL: http://${HOST:-<ALB still provisioning>}"
+          echo "Prod URL: http://${HOST:-pending}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Prod smoke test
         run: |

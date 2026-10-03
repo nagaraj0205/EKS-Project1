@@ -1,0 +1,9 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: frontend
+  annotations:
+    # Its own ALB, named per environment so testing and prod never share one.
+    # ALB names are limited to 32 characters.
+    alb.ingress.kubernetes.io/load-balancer-name: eks-frontend-testing
+    alb.ingress.kubernetes.io/tags: Environment=testing,Project=eks-project1
