@@ -136,12 +136,7 @@ jobs:
             echo "PR #$EXISTING already open for $BRANCH; it updates automatically with this push."
             exit 0
           fi
-          COMMITS_AHEAD=$(git log origin/testing..origin/"$BRANCH" --oneline 2>/dev/null | wc -l)
-
-          if [ "$COMMITS_AHEAD" -eq 0 ]; then
-          echo "No new commits found between $BRANCH and testing. Skipping PR creation."
-          exit 0
-          fi
+          
           gh pr create \
             --base testing \
             --head "$BRANCH" \
