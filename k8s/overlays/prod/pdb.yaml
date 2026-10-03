@@ -1,0 +1,10 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend
+spec:
+  # With 2 replicas, a node drain can never evict both pods at once.
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: frontend

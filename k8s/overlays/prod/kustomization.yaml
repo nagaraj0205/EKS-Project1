@@ -1,0 +1,36 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: prod
+
+resources:
+  - namespace.yaml
+  - ../../base
+  - pdb.yaml
+
+patches:
+  # `prod` hides the seed-account shortcuts on the login screen.
+  - target:
+      kind: ConfigMap
+      name: frontend-config
+    patch: |-
+      - op: replace
+        path: /data/APP_ENV
+        value: "prod"
+
+  # Two replicas, and a rollout that never takes a pod away before its
+  # replacement is Ready, so a deploy causes no downtime.
+  - target:
+      kind: Deployment
+      name: frontend
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+      - op: add
+        path: /spec/strategy
+        value:
+          type: RollingUpdate
+          rollingUpdate:
+            maxUnavailable: 0
+            maxSurge: 1

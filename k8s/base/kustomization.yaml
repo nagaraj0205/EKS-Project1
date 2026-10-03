@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Shared by every environment. Namespace, replicas and config values are set in
+# k8s/overlays/<env>. The image is NOT set here: the pipeline substitutes
+# IMAGE_PLACEHOLDER at deploy time with the exact image that was built once on
+# the testing branch and then promoted unchanged to prod.
+resources:
+  - configmap.yaml
+  - deployment.yaml
+  - service.yaml

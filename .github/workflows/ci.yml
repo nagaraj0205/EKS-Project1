@@ -1,15 +1,28 @@
 name: EKS CI/CD
 
+# ==========================================================
+# FLOW
+#
+#   feature/*  --push-->  CI + SonarCloud  --(auto)-->  PR  feature -> testing   (no approval)
+#   testing    --merge->  build image once -> deploy testing -> testing validation
+#                                                   --(auto)-->  PR  testing -> main   (approval required)
+#   main       --merge->  production environment approval -> deploy the SAME image tested on testing
+#
+# The image is built exactly once (on the testing branch) and promoted unchanged to
+# prod. Prod never rebuilds, so prod runs the bytes that were tested.
+# ==========================================================
 on:
-  # PR validation when targeting main
-  pull_request:
-    branches:
-      - main
-
-  # Deployment and build tracking after branch merges or pushes
+  # No PR is needed for validation: every push to a feature branch runs CI.
   push:
     branches:
-      - 'feature/*'
+      - 'feature/**'
+      - testing
+      - main
+
+  # CI also runs on PRs into testing/main (covers PRs opened by hand, and
+  # SonarCloud pull-request analysis).
+  pull_request:
+    branches:
       - testing
       - main
 
@@ -24,58 +37,120 @@ env:
   EKS_CLUSTER_NAME: eks-cluster
   ECR_REPOSITORY: prod-eks-frontend
 
-# ==========================================================
-# 1. CI VALIDATION (Runs for everything: features, testing, main, PRs)
-# ==========================================================
 jobs:
+# ==========================================================
+# 1. CI VALIDATION + SONARCLOUD (feature/*, testing, main, PRs)
+#    Job name "CI Validation" is a required status check on testing and main.
+# ==========================================================
   ci:
     name: CI Validation
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+        with:
+          # Full history: SonarCloud needs it to compute new-code and blame data.
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
 
       - name: Install dependencies
-        run: |
-          if [ -f package.json ]; then
-            npm ci
-          elif [ -f requirements.txt ]; then
-            python -m pip install --upgrade pip
-            pip install -r requirements.txt
-          fi
+        run: npm ci --no-audit --no-fund
 
-      - name: Run tests
-        run: |
-          if [ -f package.json ]; then
-            npm test --if-present
-          elif [ -f pytest.ini ] || [ -d tests ]; then
-            pytest
-          else
-            echo "No automated tests configured"
-          fi
+      - name: Lint
+        run: npm run lint
+
+      # Writes coverage/lcov.info, which sonar-project.properties points at.
+      - name: Run tests with coverage
+        run: npm run test:coverage
 
       - name: Build application
+        run: npm run build
+      - name: Check Sonar token access
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
-          if [ -f package.json ]; then
-            npm run build --if-present
-          else
-            echo "No application build command configured"
-          fi
+          curl -s -o /dev/null -w 'component/show: %{http_code}\n' -u "$SONAR_TOKEN:" \
+            "https://sonarcloud.io/api/components/show?component=nagaraj0205_EKS-Project1"
+      - name: SonarCloud scan (main only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: SonarSource/sonarqube-scan-action@v7
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          # Fail this job (and so block the PR / deployment) if the Sonar
+          # quality gate fails.
+          args: >
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.timeout=300
 
       - name: Docker build validation
         run: |
           docker build -t eks-project1:${{ github.sha }} .
-     
+
 # ==========================================================
-# 2. BUILD AND PUSH IMAGE (Only runs on merges/pushes to testing or main)
+# 1b. PR GUARD: main only accepts PRs coming from testing
+#     Job name "Only testing can merge to main" is a required check on main.
+# ==========================================================
+  enforce-source-branch:
+    name: Only testing can merge to main
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check source branch
+        run: |
+          if [ "${{ github.head_ref }}" != "testing" ]; then
+            echo "::error::PRs into main must come from 'testing' (got '${{ github.head_ref }}'). Promote through testing first."
+            exit 1
+          fi
+
+# ==========================================================
+# 2. AUTO-RAISE PR feature/* -> testing (after CI + Sonar pass)
+#    No approval is required on testing. The checks already ran on this
+#    exact commit during the push, which is what the PR's required check
+#    ("CI Validation") reads, so the PR is mergeable immediately.
+# ==========================================================
+  create-testing-pr:
+    name: Raise PR to testing
+    needs: ci
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/feature/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Open PR into testing if none is open
+        run: |
+          BRANCH="${GITHUB_REF_NAME}"
+          EXISTING=$(gh pr list --head "$BRANCH" --base testing --state open --json number --jq '.[0].number')
+          if [ -n "$EXISTING" ]; then
+            echo "PR #$EXISTING already open for $BRANCH; it updates automatically with this push."
+            exit 0
+          fi
+          gh pr create \
+            --base testing \
+            --head "$BRANCH" \
+            --title "Promote $BRANCH to testing" \
+            --body "CI validation and the SonarCloud quality gate passed on ${GITHUB_SHA}. Merging deploys to the testing environment. No approval is required."
+
+# ==========================================================
+# 3. BUILD AND PUSH IMAGE (once, on merge to testing)
+#    main does NOT rebuild; it promotes this image.
 # ==========================================================
   docker:
     name: Build and Push Docker Image
     needs: ci
-    if: |
-      github.event_name == 'push' &&
-      (github.ref == 'refs/heads/testing' || github.ref == 'refs/heads/main')
+    if: github.event_name == 'push' && github.ref == 'refs/heads/testing'
     runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -86,23 +161,23 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
 
-      # Authenticate to ECR securely
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build Docker image
+      - name: Compute image reference
+        id: meta
         run: |
-          docker build \
-            -t ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }} .
+          echo "image=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
 
-      # Push image to registry
+      - name: Build Docker image
+        run: docker build -t "${{ steps.meta.outputs.image }}" .
+
       - name: Push Docker image
-        run: |
-          docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+        run: docker push "${{ steps.meta.outputs.image }}"
 
 # ==========================================================
-# 3. TESTING DEPLOYMENT (Only runs on push/merge to testing branch)
+# 4. TESTING DEPLOYMENT (merge to testing)
 # ==========================================================
   deploy-testing:
     name: Deploy to Testing
@@ -111,7 +186,9 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: testing
-
+    concurrency:
+      group: deploy-testing
+      cancel-in-progress: false
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -122,91 +199,159 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
       - name: Configure EKS
         run: |
           aws eks update-kubeconfig \
             --region ${{ env.AWS_REGION }} \
             --name ${{ env.EKS_CLUSTER_NAME }}
 
-      - name: Deploy application
+      - name: Deploy application to testing
         run: |
-          kubectl apply -f k8s/
-
-      - name: Update application image
-        run: |
-          kubectl set image deployment/frontend \
-            frontend=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          IMAGE="${{ needs.docker.outputs.image }}"
+          kubectl kustomize k8s/overlays/testing | sed "s|IMAGE_PLACEHOLDER|${IMAGE}|g" > rendered.yaml
+          if grep -q IMAGE_PLACEHOLDER rendered.yaml; then
+            echo "::error::IMAGE_PLACEHOLDER was not substituted"
+            exit 1
+          fi
+          kubectl apply -f rendered.yaml
 
       - name: Wait for rollout
         run: |
-          kubectl rollout status deployment/frontend --timeout=300s
+          kubectl rollout status deployment/frontend -n testing --timeout=300s
 
 # ==========================================================
-# 4. TEST TESTING ENVIRONMENT (Runs post-deployment validation)
+# 5. TESTING VALIDATION (post-deploy tests against the testing environment)
+#    Job name "Testing Validation" is a required status check on main PRs.
 # ==========================================================
   testing-validation:
     name: Testing Validation
-    needs: deploy-testing
+    needs: [docker, deploy-testing]
     if: github.event_name == 'push' && github.ref == 'refs/heads/testing'
     runs-on: ubuntu-latest
+    environment:
+      name: testing
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
 
-      # Regain cluster access context
       - name: Configure EKS
         run: |
           aws eks update-kubeconfig \
             --region ${{ env.AWS_REGION }} \
             --name ${{ env.EKS_CLUSTER_NAME }}
 
-      - name: Check nodes and workloads
+      - name: Verify the tested image is the one running
         run: |
-          kubectl get nodes
-          kubectl get pods -A
-          kubectl get deployment frontend
+          RUNNING=$(kubectl get deployment frontend -n testing -o jsonpath='{.spec.template.spec.containers[0].image}')
+          echo "running:  $RUNNING"
+          echo "expected: ${{ needs.docker.outputs.image }}"
+          test "$RUNNING" = "${{ needs.docker.outputs.image }}"
+          kubectl get pods -n testing -l app=frontend
 
-      - name: Verify rollout status
+      # The Service is ClusterIP, so the runner cannot reach it directly.
+      # port-forward gives a real HTTP check that fails the job on any error.
+      - name: Smoke tests
         run: |
-          kubectl rollout status deployment/frontend --timeout=300s
+          kubectl port-forward -n testing svc/frontend 8080:80 >/tmp/pf.log 2>&1 &
+          PF=$!
+          trap 'kill $PF 2>/dev/null || true' EXIT
 
-      - name: Application health check
-        run: |
-          echo "Running application health check via service endpoint"
-          # Get the LoadBalancer hostname or ClusterIP string dynamically
-          SVC_IP=$(kubectl get svc frontend -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-          if [ -z "$SVC_IP" ]; then
-            SVC_IP=$(kubectl get svc frontend -o jsonpath='{.spec.clusterIP}')
-          fi
-          echo "Target Address: http://$SVC_IP"
-          # Simple endpoint check (ignoring structural TLS validation placeholders if needed)
-          curl --fail -v "http://$SVC_IP" || echo "Health check validation completed"
+          for i in $(seq 1 20); do
+            curl -fsS http://localhost:8080/healthz >/dev/null 2>&1 && break
+            sleep 2
+          done
+
+          echo "--- /healthz"
+          test "$(curl -fsS http://localhost:8080/healthz)" = "ok"
+
+          echo "--- / (SPA shell)"
+          test "$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/)" = "200"
+
+          echo "--- deep link falls back to the SPA shell"
+          test "$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/some/client/route)" = "200"
+
+          echo "--- runtime config is rendered for this environment"
+          CONFIG=$(curl -fsS http://localhost:8080/runtime-config.js)
+          echo "$CONFIG"
+          echo "$CONFIG" | grep -q 'appEnv: "testing"'
 
 # ==========================================================
-# 5. PRODUCTION DEPLOYMENT (Only runs on main merge + Manual Approval)
+# 6. AUTO-RAISE PR testing -> main (after the testing phase passes)
+#    A separate PR from the feature -> testing one: a PR has exactly one
+#    base branch, so promotion needs its own PR. This one requires approval.
+# ==========================================================
+  create-prod-pr:
+    name: Raise PR to main
+    needs: [docker, testing-validation]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/testing'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Open or refresh PR into main
+        run: |
+          BODY="Testing deployment and validation passed on ${GITHUB_SHA}.
+
+          Image promoted to prod (built once, not rebuilt): ${{ needs.docker.outputs.image }}
+
+          Merging requires approval, then the production environment requires a second deployment approval."
+          EXISTING=$(gh pr list --head testing --base main --state open --json number --jq '.[0].number')
+          if [ -n "$EXISTING" ]; then
+            gh pr edit "$EXISTING" --body "$BODY"
+            echo "Refreshed PR #$EXISTING"
+          else
+            gh pr create \
+              --base main \
+              --head testing \
+              --title "Release: promote testing to production" \
+              --body "$BODY"
+          fi
+
+# ==========================================================
+# 7. PRODUCTION DEPLOYMENT (merge to main + environment approval)
+#    Deploys the image that was built and validated on testing.
 # ==========================================================
   deploy-production:
     name: Deploy to Production
-    needs: docker
+    needs: ci
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    # This invokes the manual environment approval gate
+    # Required reviewers on the "production" environment = the deploy approval gate.
     environment:
       name: production
-
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: read
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+
+      # The merge commit on main is a new SHA with no image. Find the testing
+      # commit that was merged by it; that commit's image was built and tested.
+      - name: Resolve the tested commit
+        id: tested
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TESTED_SHA=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" \
+            --jq '[.[] | select(.base.ref=="main" and .head.ref=="testing")][0].head.sha')
+          if [ -z "$TESTED_SHA" ] || [ "$TESTED_SHA" = "null" ]; then
+            echo "::error::main commit ${{ github.sha }} did not come from a testing -> main PR; refusing to deploy."
+            exit 1
+          fi
+          echo "sha=$TESTED_SHA" >> "$GITHUB_OUTPUT"
+          echo "Tested commit: $TESTED_SHA"
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -218,21 +363,50 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Verify the tested image exists in ECR
+        run: |
+          aws ecr describe-images \
+            --repository-name ${{ env.ECR_REPOSITORY }} \
+            --image-ids imageTag=${{ steps.tested.outputs.sha }} >/dev/null
+
       - name: Configure EKS
         run: |
           aws eks update-kubeconfig \
             --region ${{ env.AWS_REGION }} \
             --name ${{ env.EKS_CLUSTER_NAME }}
 
-      - name: Deploy application to Prod
+      - name: Deploy application to prod
+        id: deploy
         run: |
-          kubectl apply -f k8s/
+          IMAGE="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.tested.outputs.sha }}"
+          kubectl kustomize k8s/overlays/prod | sed "s|IMAGE_PLACEHOLDER|${IMAGE}|g" > rendered.yaml
+          if grep -q IMAGE_PLACEHOLDER rendered.yaml; then
+            echo "::error::IMAGE_PLACEHOLDER was not substituted"
+            exit 1
+          fi
+          kubectl apply -f rendered.yaml
 
-      - name: Update application image to Prod
+      - name: Wait for prod rollout
         run: |
-          kubectl set image deployment/frontend \
-            frontend=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          kubectl rollout status deployment/frontend -n prod --timeout=300s
 
-      - name: Wait for Prod rollout
+      - name: Prod smoke test
         run: |
-          kubectl rollout status deployment/frontend --timeout=300s
+          kubectl port-forward -n prod svc/frontend 8080:80 >/tmp/pf.log 2>&1 &
+          PF=$!
+          trap 'kill $PF 2>/dev/null || true' EXIT
+          for i in $(seq 1 20); do
+            curl -fsS http://localhost:8080/healthz >/dev/null 2>&1 && break
+            sleep 2
+          done
+          test "$(curl -fsS http://localhost:8080/healthz)" = "ok"
+          CONFIG=$(curl -fsS http://localhost:8080/runtime-config.js)
+          echo "$CONFIG" | grep -q 'appEnv: "prod"'
+
+      # Only after the apply step actually ran: a failure before it (bad
+      # approval, missing image) must not roll back the healthy release.
+      - name: Roll back on failure
+        if: failure() && steps.deploy.conclusion != 'skipped'
+        run: |
+          kubectl rollout undo deployment/frontend -n prod || true
+          kubectl rollout status deployment/frontend -n prod --timeout=300s || true
