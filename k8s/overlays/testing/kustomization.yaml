@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Testing environment: its own namespace, so it can never touch prod objects
+# even though both live in the same EKS cluster.
+namespace: testing
+
+resources:
+  - namespace.yaml
+  - ../../base
+
+patches:
+  - target:
+      kind: ConfigMap
+      name: frontend-config
+    patch: |-
+      - op: replace
+        path: /data/APP_ENV
+        value: "testing"
