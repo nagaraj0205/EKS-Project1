@@ -1,0 +1,157 @@
+name: Feature CI
+
+on:
+  push:
+    branches:
+      - 'feature/*'
+
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  AWS_REGION: ap-south-2
+  ECR_REPOSITORY: prod-eks-frontend
+
+jobs:
+
+  ci:
+    name: Feature CI Validation
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # --------------------------------------------------
+      # Checkout
+      # --------------------------------------------------
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # --------------------------------------------------
+      # Setup Python
+      # --------------------------------------------------
+
+      - name: Setup Python
+        if: hashFiles('requirements.txt') != ''
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # --------------------------------------------------
+      # Install dependencies
+      # --------------------------------------------------
+
+      - name: Install dependencies
+        run: |
+          if [ -f requirements.txt ]; then
+            python -m pip install --upgrade pip
+            pip install -r requirements.txt
+          fi
+
+      # --------------------------------------------------
+      # Install pytest if tests directory exists
+      # --------------------------------------------------
+
+      - name: Install test dependencies
+        run: |
+          if [ -d tests ]; then
+            pip install pytest
+          fi
+
+      # --------------------------------------------------
+      # Run tests
+      # --------------------------------------------------
+
+      - name: Run tests
+        run: |
+          if [ -d tests ]; then
+            pytest -v
+          else
+            echo "No automated tests configured"
+          fi
+
+      # --------------------------------------------------
+      # Docker build validation
+      # --------------------------------------------------
+
+      - name: Docker build validation
+        run: |
+          docker build \
+            -t eks-project1:${{ github.sha }} .
+
+  # ======================================================
+  # SONARCLOUD
+  # ======================================================
+
+  sonar:
+    name: SonarCloud Analysis
+    runs-on: ubuntu-latest
+    needs: ci
+
+    steps:
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
+
+  # ======================================================
+  # CREATE FEATURE → TESTING PR
+  # ======================================================
+
+  create-testing-pr:
+    name: Create PR to Testing
+    runs-on: ubuntu-latest
+
+    needs:
+      - ci
+      - sonar
+
+    if: |
+      github.event_name == 'push' &&
+      startsWith(github.ref, 'refs/heads/feature/')
+
+    steps:
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Create PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FEATURE_BRANCH: ${{ github.ref_name }}
+        run: |
+
+          echo "Checking existing PR..."
+
+          EXISTING_PR=$(gh pr list \
+            --base testing \
+            --head "$FEATURE_BRANCH" \
+            --state open \
+            --json number \
+            --jq '.[0].number')
+
+          if [ -n "$EXISTING_PR" ]; then
+
+            echo "PR #$EXISTING_PR already exists"
+
+          else
+
+            echo "Creating PR..."
+
+            gh pr create \
+              --base testing \
+              --head "$FEATURE_BRANCH" \
+              --title "Promote $FEATURE_BRANCH to testing" \
+              --body "Automated PR created after Feature CI and SonarCloud validation passed."
+
+          fi

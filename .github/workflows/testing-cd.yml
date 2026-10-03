@@ -1,0 +1,377 @@
+name: Testing CD
+
+on:
+
+  push:
+    branches:
+      - testing
+
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+  pull-requests: write
+
+env:
+  AWS_REGION: ap-south-2
+  EKS_CLUSTER_NAME: eks-cluster
+  ECR_REPOSITORY: prod-eks-frontend
+
+jobs:
+
+  # ======================================================
+  # 1. BUILD AND PUSH IMAGE
+  # ======================================================
+
+  docker:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------
+      # AWS OIDC
+      # -----------------------------------------------
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+
+      # -----------------------------------------------
+      # ECR login
+      # -----------------------------------------------
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # -----------------------------------------------
+      # Build
+      # -----------------------------------------------
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }} .
+
+      # -----------------------------------------------
+      # Push
+      # -----------------------------------------------
+
+      - name: Push Docker image
+        run: |
+          docker push \
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+
+  # ======================================================
+  # 2. DEPLOY TO TESTING EKS
+  # ======================================================
+
+  deploy-testing:
+    name: Deploy to Testing EKS
+
+    needs:
+      - docker
+
+    runs-on: ubuntu-latest
+
+    environment:
+      name: testing
+
+    steps:
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------
+      # AWS
+      # -----------------------------------------------
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+
+      # -----------------------------------------------
+      # ECR
+      # -----------------------------------------------
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # -----------------------------------------------
+      # EKS
+      # -----------------------------------------------
+
+      - name: Configure EKS
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ env.AWS_REGION }} \
+            --name ${{ env.EKS_CLUSTER_NAME }}
+
+      # -----------------------------------------------
+      # Check cluster
+      # -----------------------------------------------
+
+      - name: Check EKS
+        run: |
+          kubectl get nodes
+
+      # -----------------------------------------------
+      # Deploy manifests
+      # -----------------------------------------------
+
+      - name: Deploy application
+        run: |
+          kubectl apply -f k8s/
+
+      # -----------------------------------------------
+      # Update image
+      # -----------------------------------------------
+
+      - name: Update application image
+        run: |
+          kubectl set image deployment/frontend \
+            frontend=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+
+      # -----------------------------------------------
+      # Rollout
+      # -----------------------------------------------
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status \
+            deployment/frontend \
+            --timeout=300s
+
+      # -----------------------------------------------
+      # Pods
+      # -----------------------------------------------
+
+      - name: Verify pods
+        run: |
+          kubectl get pods -o wide
+
+      # -----------------------------------------------
+      # Deployment
+      # -----------------------------------------------
+
+      - name: Verify deployment
+        run: |
+          kubectl get deployment frontend
+
+      # -----------------------------------------------
+      # Service
+      # -----------------------------------------------
+
+      - name: Verify service
+        run: |
+          kubectl get svc frontend
+
+      # -----------------------------------------------
+      # Ingress / ALB
+      # -----------------------------------------------
+
+      - name: Verify ingress
+        run: |
+          kubectl get ingress
+
+  # ======================================================
+  # 3. TEST TESTING ENVIRONMENT
+  # ======================================================
+
+  testing-validation:
+    name: Testing Validation
+
+    needs:
+      - deploy-testing
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------
+      # AWS
+      # -----------------------------------------------
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+
+      # -----------------------------------------------
+      # EKS
+      # -----------------------------------------------
+
+      - name: Configure EKS
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ env.AWS_REGION }} \
+            --name ${{ env.EKS_CLUSTER_NAME }}
+
+      # -----------------------------------------------
+      # Cluster validation
+      # -----------------------------------------------
+
+      - name: Check cluster
+        run: |
+          kubectl get nodes
+          kubectl get pods -A
+
+      # -----------------------------------------------
+      # Deployment validation
+      # -----------------------------------------------
+
+      - name: Verify deployment
+        run: |
+          kubectl rollout status \
+            deployment/frontend \
+            --timeout=300s
+
+      # -----------------------------------------------
+      # ALB URL
+      # -----------------------------------------------
+
+      - name: Get ALB URL
+        id: alb
+        run: |
+
+          echo "Waiting for ALB..."
+
+          for i in {1..20}; do
+
+            ALB_URL=$(kubectl get ingress frontend-ingress \
+              -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+
+            if [ -n "$ALB_URL" ]; then
+              break
+            fi
+
+            echo "ALB not ready..."
+            sleep 15
+
+          done
+
+          if [ -z "$ALB_URL" ]; then
+            echo "ALB hostname was not created"
+            kubectl describe ingress frontend-ingress
+            exit 1
+          fi
+
+          echo "ALB_URL=http://$ALB_URL" >> "$GITHUB_ENV"
+
+          echo "ALB: $ALB_URL"
+
+      # -----------------------------------------------
+      # Health check
+      # -----------------------------------------------
+
+      - name: Application health check
+        run: |
+
+          echo "Testing: $ALB_URL"
+
+          for i in {1..10}; do
+
+            if curl \
+              --fail \
+              --silent \
+              --show-error \
+              --max-time 10 \
+              "$ALB_URL/health"; then
+
+              echo "Application health check PASSED"
+              exit 0
+
+            fi
+
+            echo "Application not ready..."
+            sleep 10
+
+          done
+
+          echo "Application health check FAILED"
+
+          kubectl get pods -o wide
+          kubectl describe deployment frontend
+
+          exit 1
+
+      # -----------------------------------------------
+      # Smoke test
+      # -----------------------------------------------
+
+      - name: Application smoke test
+        run: |
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --max-time 10 \
+            "$ALB_URL/"
+
+  # ======================================================
+  # 4. CREATE TESTING → MAIN PR
+  # ======================================================
+
+  create-production-pr:
+    name: Create Production Promotion PR
+
+    needs:
+      - testing-validation
+
+    runs-on: ubuntu-latest
+
+    if: |
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/testing'
+
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create testing → main PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+
+          echo "Checking existing production PR..."
+
+          EXISTING_PR=$(gh pr list \
+            --base main \
+            --head testing \
+            --state open \
+            --json number \
+            --jq '.[0].number')
+
+          if [ -n "$EXISTING_PR" ]; then
+
+            echo "PR #$EXISTING_PR already exists"
+
+          else
+
+            echo "Creating production promotion PR..."
+
+            gh pr create \
+              --base main \
+              --head testing \
+              --title "Promote testing to production" \
+              --body "Testing deployment and validation passed successfully.
+
+          Please review and approve this production promotion."
+
+          fi

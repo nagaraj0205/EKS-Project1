@@ -5,6 +5,7 @@ on:
   pull_request:
     branches:
       - main
+      - testing
 
   # Deployment and build tracking after branch merges or pushes
   push:
@@ -18,6 +19,7 @@ on:
 permissions:
   contents: read
   id-token: write
+  pull-requests: write
 
 env:
   AWS_REGION: ap-south-2
@@ -179,6 +181,11 @@ jobs:
       - name: Verify rollout status
         run: |
           kubectl rollout status deployment/frontend --timeout=300s
+      - name: Get Ingress URL
+        run: |
+          echo "Waiting for AWS ALB to provision..."
+          sleep 30
+          kubectl get ingress frontend-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
 
       - name: Application health check
         run: |
