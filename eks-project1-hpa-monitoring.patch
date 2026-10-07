@@ -1,0 +1,1751 @@
+From bbbfe61aca8f5a3caf273a58c9aa6c2fe50bb349 Mon Sep 17 00:00:00 2001
+From: Nagarajan <nagarajan.02s5@gmail.com>
+Date: Wed, 7 Oct 2026 07:18:41 +0000
+Subject: [PATCH] Add HPA, PDB tuning and Prometheus/Grafana monitoring
+
+- k8s: add HPA (testing 1-2, prod 2-6) on the frontend container CPU; remove
+  hardcoded Deployment replicas so the HPA owns scaling; prod PDB now uses
+  maxUnavailable: 1; prod pods spread across zones
+- k8s: add nginx-prometheus-exporter sidecar and a metrics Service port;
+  expose stub_status on 127.0.0.1:8080 in nginx.conf
+- monitoring: kube-prometheus-stack values tuned for EKS, gp3 storage class,
+  ServiceMonitor, PrometheusRule alerts, Grafana dashboard
+- ci: add monitoring.yml workflow (validate, then deploy behind the production
+
+  environment approval)
+- docs: monitoring/README.md and a README section
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FQex1LLxEK9HiMG4Griwuc
+---
+ .github/workflows/monitoring.yml             | 225 +++++++
+ README.md                                    |  19 +
+ k8s/base/deployment.yaml                     |  40 +-
+ k8s/base/hpa.yaml                            |  49 ++
+ k8s/base/kustomization.yaml                  |   1 +
+ k8s/base/service.yaml                        |   6 +
+ k8s/overlays/prod/kustomization.yaml         |  32 +-
+ k8s/overlays/prod/pdb.yaml                   |  12 +-
+ monitoring/README.md                         |  93 +++
+ monitoring/app/grafana-dashboard.yaml        | 657 +++++++++++++++++++
+ monitoring/app/kustomization.yaml            |  14 +
+ monitoring/app/prometheusrule.yaml           | 152 +++++
+ monitoring/app/servicemonitor.yaml           |  24 +
+ monitoring/kube-prometheus-stack-values.yaml | 201 ++++++
+ monitoring/storageclass-gp3.yaml             |  19 +
+ nginx.conf                                   |  16 +
+ 16 files changed, 1551 insertions(+), 9 deletions(-)
+ create mode 100644 .github/workflows/monitoring.yml
+ create mode 100644 k8s/base/hpa.yaml
+ create mode 100644 monitoring/README.md
+ create mode 100644 monitoring/app/grafana-dashboard.yaml
+ create mode 100644 monitoring/app/kustomization.yaml
+ create mode 100644 monitoring/app/prometheusrule.yaml
+ create mode 100644 monitoring/app/servicemonitor.yaml
+ create mode 100644 monitoring/kube-prometheus-stack-values.yaml
+ create mode 100644 monitoring/storageclass-gp3.yaml
+
+diff --git a/.github/workflows/monitoring.yml b/.github/workflows/monitoring.yml
+new file mode 100644
+index 0000000..e30eb70
+--- /dev/null
++++ b/.github/workflows/monitoring.yml
+@@ -0,0 +1,225 @@
++name: Monitoring (Prometheus + Grafana)
++
++# ==========================================================
++# Installs and updates the monitoring stack on the shared EKS cluster.
++# Separate from the app pipeline (ci.yml) on purpose: the app deploys on every
++# merge, the monitoring stack only changes when files under monitoring/ do.
++#
++#   pull request touching monitoring/ or k8s/  -> validate only (render + lint)
++#   push to main touching monitoring/          -> validate -> production approval -> deploy
++#   manual run (from main)                     -> validate -> production approval -> deploy
++#
++# One-time prerequisites (see monitoring/README.md):
++#   - EBS CSI driver add-on on the cluster (for the gp3 volumes)
++#   - GitHub secret GRAFANA_ADMIN_PASSWORD
++#   - GitHub secret ALERTMANAGER_SLACK_WEBHOOK (optional; alerts are not delivered without it)
++#   - The pipeline IAM role's EKS access entry needs cluster-admin for this job: the Helm
++#     chart installs CRDs, ClusterRoles and cluster-wide objects, which a namespace-scoped
++#     app-deploy role cannot create. Prefer a separate role in AWS_PROD_ROLE_ARN for this.
++# ==========================================================
++on:
++  pull_request:
++    paths:
++      - 'monitoring/**'
++      - 'k8s/**'
++      - '.github/workflows/monitoring.yml'
++  push:
++    branches:
++      - main
++    paths:
++      - 'monitoring/**'
++      - '.github/workflows/monitoring.yml'
++  workflow_dispatch:
++
++permissions:
++  contents: read
++  id-token: write
++
++env:
++  AWS_REGION: ap-south-2
++  EKS_CLUSTER_NAME: eks-cluster
++
++jobs:
++# ==========================================================
++# 1. VALIDATE (no cluster access needed)
++# ==========================================================
++  validate:
++    name: Validate manifests and Helm values
++    runs-on: ubuntu-latest
++    timeout-minutes: 10
++    steps:
++      - name: Checkout source
++        uses: actions/checkout@v4
++
++      - name: Render kustomize overlays
++        run: |
++          kubectl kustomize k8s/overlays/testing > /tmp/testing.yaml
++          kubectl kustomize k8s/overlays/prod    > /tmp/prod.yaml
++          kubectl kustomize monitoring/app       > /tmp/monitoring-app.yaml
++
++      # The HPA owns the replica count. A hardcoded Deployment replicas field would be
++      # reset on every apply and fight the autoscaler.
++      - name: Check autoscaling invariants
++        run: |
++          python3 -c "import yaml" 2>/dev/null || pip install --quiet --break-system-packages pyyaml
++          python3 - <<'EOF'
++          import sys, yaml
++          failed = False
++          for env in ("testing", "prod"):
++              docs = [d for d in yaml.safe_load_all(open(f"/tmp/{env}.yaml")) if d]
++              kinds = {d["kind"] for d in docs}
++              dep = next(d for d in docs if d["kind"] == "Deployment")
++              if "replicas" in dep["spec"]:
++                  print(f"::error::{env}: Deployment sets spec.replicas; remove it so the HPA owns scaling")
++                  failed = True
++              if "HorizontalPodAutoscaler" not in kinds:
++                  print(f"::error::{env}: no HorizontalPodAutoscaler rendered")
++                  failed = True
++              if env == "prod":
++                  hpa = next(d for d in docs if d["kind"] == "HorizontalPodAutoscaler")
++                  if hpa["spec"]["minReplicas"] < 2:
++                      print("::error::prod HPA minReplicas must be at least 2")
++                      failed = True
++                  if "PodDisruptionBudget" not in kinds:
++                      print("::error::prod has no PodDisruptionBudget")
++                      failed = True
++          sys.exit(1 if failed else 0)
++          EOF
++
++      - name: Validate Grafana dashboard JSON
++        run: |
++          python3 - <<'EOF'
++          import json, yaml
++          cm = yaml.safe_load(open("monitoring/app/grafana-dashboard.yaml"))
++          for name, body in cm["data"].items():
++              json.loads(body)
++              print("dashboard JSON ok:", name)
++          EOF
++
++      - name: Render the Helm chart with our values
++        run: |
++          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
++          helm repo update
++          helm template monitoring prometheus-community/kube-prometheus-stack \
++            --namespace monitoring \
++            -f monitoring/kube-prometheus-stack-values.yaml > /dev/null
++          echo "Helm values render cleanly"
++
++# ==========================================================
++# 2. DEPLOY (main only, behind the production environment approval)
++# ==========================================================
++  deploy:
++    name: Deploy monitoring stack
++    needs: validate
++    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
++    runs-on: ubuntu-latest
++    timeout-minutes: 45
++    environment:
++      name: production
++    concurrency:
++      group: deploy-monitoring
++      cancel-in-progress: false
++    env:
++      GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
++      ALERTMANAGER_SLACK_WEBHOOK: ${{ secrets.ALERTMANAGER_SLACK_WEBHOOK }}
++      # Optional repository variable. Leave unset to install the latest chart and
++      # print the version, then set it to that value to pin it.
++      KPS_CHART_VERSION: ${{ vars.KPS_CHART_VERSION }}
++    steps:
++      - name: Checkout source
++        uses: actions/checkout@v4
++
++      - name: Check required secrets
++        run: |
++          if [ -z "$GRAFANA_ADMIN_PASSWORD" ]; then
++            echo "::error::GitHub secret GRAFANA_ADMIN_PASSWORD is not set."
++            exit 1
++          fi
++          if [ -z "$ALERTMANAGER_SLACK_WEBHOOK" ]; then
++            echo "::warning::ALERTMANAGER_SLACK_WEBHOOK is not set. Alerts will fire in Prometheus but will not be delivered to Slack."
++          fi
++
++      - name: Configure AWS credentials
++        uses: aws-actions/configure-aws-credentials@v4
++        with:
++          aws-region: ${{ env.AWS_REGION }}
++          role-to-assume: ${{ secrets.AWS_PROD_ROLE_ARN || secrets.AWS_ROLE_ARN }}
++
++      - name: Configure EKS
++        run: |
++          aws eks update-kubeconfig \
++            --region ${{ env.AWS_REGION }} \
++            --name ${{ env.EKS_CLUSTER_NAME }}
++
++      # HPAs read CPU from the metrics API. Install metrics-server only if the cluster
++      # does not already provide it (for example as the EKS add-on).
++      - name: Ensure metrics-server (needed by the HPA)
++        run: |
++          if kubectl get apiservice v1beta1.metrics.k8s.io >/dev/null 2>&1; then
++            echo "metrics API already present"
++          else
++            helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
++            helm repo update
++            helm upgrade --install metrics-server metrics-server/metrics-server \
++              --namespace kube-system --atomic --timeout 5m
++          fi
++
++      - name: Ensure the gp3 storage class
++        run: |
++          if kubectl get storageclass gp3 >/dev/null 2>&1; then
++            echo "storage class gp3 already exists"
++          else
++            kubectl apply -f monitoring/storageclass-gp3.yaml
++          fi
++
++      - name: Create namespace and secrets
++        run: |
++          kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
++
++          kubectl -n monitoring create secret generic grafana-admin \
++            --from-literal=admin-user=admin \
++            --from-literal=admin-password="$GRAFANA_ADMIN_PASSWORD" \
++            --dry-run=client -o yaml | kubectl apply -f -
++
++          # Alertmanager mounts this secret, so it must exist even without a webhook,
++          # otherwise the pod cannot start. The placeholder never delivers anything.
++          kubectl -n monitoring create secret generic alertmanager-slack \
++            --from-literal=url="${ALERTMANAGER_SLACK_WEBHOOK:-https://invalid.example/slack-not-configured}" \
++            --dry-run=client -o yaml | kubectl apply -f -
++
++      - name: Install or upgrade kube-prometheus-stack
++        run: |
++          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
++          helm repo update
++          VERSION="${KPS_CHART_VERSION:-$(helm search repo prometheus-community/kube-prometheus-stack -o json | jq -r '.[0].version')}"
++          echo "kube-prometheus-stack chart version: $VERSION"
++          echo "kube-prometheus-stack chart version: \`$VERSION\` (set the KPS_CHART_VERSION repository variable to pin it)" >> "$GITHUB_STEP_SUMMARY"
++          helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
++            --namespace monitoring \
++            --version "$VERSION" \
++            -f monitoring/kube-prometheus-stack-values.yaml \
++            --atomic --timeout 15m
++
++      - name: Wait for the stack
++        run: |
++          kubectl -n monitoring rollout status deployment/monitoring-kube-prometheus-operator --timeout=300s
++          kubectl -n monitoring rollout status deployment/monitoring-grafana --timeout=300s
++          kubectl -n monitoring rollout status statefulset/prometheus-monitoring-kube-prometheus-prometheus --timeout=600s
++          kubectl -n monitoring rollout status statefulset/alertmanager-monitoring-kube-prometheus-alertmanager --timeout=300s
++
++      # Needs the operator CRDs installed above, which is why this runs after Helm.
++      - name: Apply app scrape config, alerts and dashboard
++        run: |
++          kubectl apply --dry-run=server -k monitoring/app
++          kubectl apply -k monitoring/app
++
++      - name: Summary
++        run: |
++          kubectl -n monitoring get pods
++          kubectl -n monitoring get servicemonitor,prometheusrule
++          {
++            echo "### Monitoring deployed"
++            echo "Grafana: \`kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80\` then http://localhost:3000 (user: admin)"
++            echo "Prometheus: \`kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090\`"
++            echo "Alertmanager: \`kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-alertmanager 9093\`"
++          } >> "$GITHUB_STEP_SUMMARY"
+diff --git a/README.md b/README.md
+index e45d327..f18d5a8 100644
+--- a/README.md
++++ b/README.md
+@@ -525,6 +525,25 @@ Production ALB
+ 
+ ---
+ 
++# 📈 Autoscaling, Availability & Monitoring
++
++| Concern | How it is handled | Where |
++|---|---|---|
++| Autoscaling | HPA on the `frontend` container's CPU (70% of request). Testing 1 to 2 pods, prod 2 to 6 | `k8s/base/hpa.yaml`, prod overlay |
++| Voluntary disruptions | Prod PodDisruptionBudget `maxUnavailable: 1`, so a node drain evicts one pod at a time | `k8s/overlays/prod/pdb.yaml` |
++| Zero-downtime deploys | `maxUnavailable: 0`, `maxSurge: 1`, readiness probe, ALB deregistration delay | prod overlay, `k8s/base/ingress.yaml` |
++| AZ failure | Pods spread across zones (`topologySpreadConstraints`) | prod overlay |
++| Metrics | nginx-exporter sidecar, kube-state-metrics, cAdvisor, node-exporter | `k8s/base/deployment.yaml`, `monitoring/` |
++| Dashboards | Grafana "Frontend overview" (requests, connections, CPU, memory, HPA, restarts) | `monitoring/app/grafana-dashboard.yaml` |
++| Alerting | Prometheus rules to Alertmanager to Slack (down, crash loop, OOM, HPA, PDB) | `monitoring/app/prometheusrule.yaml` |
++
++The Deployment sets no `replicas`: the HPA owns the replica count, so a deploy never
++resets it. The monitoring stack (kube-prometheus-stack) has its own workflow,
++`.github/workflows/monitoring.yml`, behind the same `production` approval. See
++[`monitoring/README.md`](monitoring/README.md) for setup, alerts and how to open Grafana.
++
++---
++
+ # 🐛 Troubleshooting
+ 
+ ### OIDC Authentication Error
+diff --git a/k8s/base/deployment.yaml b/k8s/base/deployment.yaml
+index 3502dec..d88996a 100644
+--- a/k8s/base/deployment.yaml
++++ b/k8s/base/deployment.yaml
+@@ -3,7 +3,10 @@ kind: Deployment
+ metadata:
+   name: frontend
+ spec:
+-  replicas: 1
++  # No `replicas:` here on purpose. The HorizontalPodAutoscaler (hpa.yaml) owns
++  # the replica count. If this field were set, every `kubectl apply` would reset
++  # the HPA's current scale back to this number on each deploy.
++  # The floor and ceiling per environment are minReplicas/maxReplicas in hpa.yaml.
+ 
+   selector:
+     matchLabels:
+@@ -56,9 +59,42 @@ spec:
+               port: http
+             initialDelaySeconds: 5
+ 
++          # The HPA scales on this container's CPU as a percentage of the CPU
++          # *request* below, so the request is the scaling yardstick: 70% of 50m
++          # is 35m per pod. Tune it after a load test. No CPU limit on purpose
++          # (CPU limits throttle nginx and distort the autoscaling signal).
+           resources:
+             requests:
+-              cpu: 25m
++              cpu: 50m
+               memory: 64Mi
+             limits:
+               memory: 192Mi
++
++        # Sidecar that turns nginx's stub_status (served on 127.0.0.1:8080, see
++        # nginx.conf) into Prometheus metrics on :9113. Prometheus scrapes it via
++        # the ServiceMonitor in monitoring/app. It shares the pod's network
++        # namespace, which is why it can reach nginx on localhost.
++        #
++        # Trade-off: a pod is Ready only when ALL its containers are running, so a
++        # crashing exporter would take the pod out of the Service. It is tiny and
++        # stable, but alert on pod restarts (monitoring/app/prometheusrule.yaml).
++        - name: nginx-exporter
++          image: nginx/nginx-prometheus-exporter:1.5.3
++          args:
++            - --nginx.scrape-uri=http://127.0.0.1:8080/stub_status
++          ports:
++            - name: metrics
++              containerPort: 9113
++          securityContext:
++            runAsNonRoot: true
++            runAsUser: 10001
++            allowPrivilegeEscalation: false
++            readOnlyRootFilesystem: true
++            capabilities:
++              drop: ["ALL"]
++          resources:
++            requests:
++              cpu: 10m
++              memory: 16Mi
++            limits:
++              memory: 64Mi
+diff --git a/k8s/base/hpa.yaml b/k8s/base/hpa.yaml
+new file mode 100644
+index 0000000..d4a3292
+--- /dev/null
++++ b/k8s/base/hpa.yaml
+@@ -0,0 +1,49 @@
++apiVersion: autoscaling/v2
++kind: HorizontalPodAutoscaler
++metadata:
++  name: frontend
++  labels:
++    app: frontend
++spec:
++  scaleTargetRef:
++    apiVersion: apps/v1
++    kind: Deployment
++    name: frontend
++
++  # Base values suit testing. The prod overlay raises them (min 2, max 6).
++  minReplicas: 1
++  maxReplicas: 2
++
++  metrics:
++    # ContainerResource, not Resource: the pod now has two containers (frontend
++    # and the nginx-exporter sidecar). A plain Resource metric averages across
++    # all containers and would dilute the signal. This looks at `frontend` only.
++    # Needs Kubernetes 1.30+ (beta and on by default from 1.27).
++    - type: ContainerResource
++      containerResource:
++        name: cpu
++        container: frontend
++        target:
++          type: Utilization
++          averageUtilization: 70
++
++  behavior:
++    # Scale up fast: users are waiting.
++    scaleUp:
++      stabilizationWindowSeconds: 0
++      selectPolicy: Max
++      policies:
++        - type: Pods
++          value: 2
++          periodSeconds: 60
++        - type: Percent
++          value: 100
++          periodSeconds: 60
++    # Scale down slowly: wait 5 minutes of low load, then one pod per minute, so a
++    # traffic dip does not cause flapping.
++    scaleDown:
++      stabilizationWindowSeconds: 300
++      policies:
++        - type: Pods
++          value: 1
++          periodSeconds: 60
+diff --git a/k8s/base/kustomization.yaml b/k8s/base/kustomization.yaml
+index 66db143..1d04b66 100644
+--- a/k8s/base/kustomization.yaml
++++ b/k8s/base/kustomization.yaml
+@@ -10,3 +10,4 @@ resources:
+   - deployment.yaml
+   - service.yaml
+   - ingress.yaml
++  - hpa.yaml
+diff --git a/k8s/base/service.yaml b/k8s/base/service.yaml
+index 6d19f9c..46410a7 100644
+--- a/k8s/base/service.yaml
++++ b/k8s/base/service.yaml
+@@ -14,3 +14,9 @@ spec:
+     - name: http
+       port: 80
+       targetPort: http
++
++    # nginx-exporter sidecar metrics. The Ingress only routes port 80, so this
++    # port is reachable inside the cluster (Prometheus) but not from the ALB.
++    - name: metrics
++      port: 9113
++      targetPort: metrics
+diff --git a/k8s/overlays/prod/kustomization.yaml b/k8s/overlays/prod/kustomization.yaml
+index 2e30560..a61b03a 100644
+--- a/k8s/overlays/prod/kustomization.yaml
++++ b/k8s/overlays/prod/kustomization.yaml
+@@ -23,15 +23,14 @@ patches:
+         path: /data/APP_ENV
+         value: "prod"
+ 
+-  # Two replicas, and a rollout that never takes a pod away before its
+-  # replacement is Ready, so a deploy causes no downtime.
++  # A rollout that never takes a pod away before its replacement is Ready, so a
++  # deploy causes no downtime, and pods are spread across availability zones so
++  # losing one AZ does not take every replica with it. The replica count itself
++  # is owned by the HPA below (there is deliberately no /spec/replicas here).
+   - target:
+       kind: Deployment
+       name: frontend
+     patch: |-
+-      - op: replace
+-        path: /spec/replicas
+-        value: 2
+       - op: add
+         path: /spec/strategy
+         value:
+@@ -39,3 +38,26 @@ patches:
+           rollingUpdate:
+             maxUnavailable: 0
+             maxSurge: 1
++      - op: add
++        path: /spec/template/spec/topologySpreadConstraints
++        value:
++          - maxSkew: 1
++            topologyKey: topology.kubernetes.io/zone
++            # Prefer spreading but never leave a pod Pending because of it.
++            whenUnsatisfiable: ScheduleAnyway
++            labelSelector:
++              matchLabels:
++                app: frontend
++
++  # Prod autoscaling range: always at least 2 pods (so the PDB can allow a node
++  # drain), up to 6 under load.
++  - target:
++      kind: HorizontalPodAutoscaler
++      name: frontend
++    patch: |-
++      - op: replace
++        path: /spec/minReplicas
++        value: 2
++      - op: replace
++        path: /spec/maxReplicas
++        value: 6
+diff --git a/k8s/overlays/prod/pdb.yaml b/k8s/overlays/prod/pdb.yaml
+index 9241af1..3db87b2 100644
+--- a/k8s/overlays/prod/pdb.yaml
++++ b/k8s/overlays/prod/pdb.yaml
+@@ -2,9 +2,17 @@ apiVersion: policy/v1
+ kind: PodDisruptionBudget
+ metadata:
+   name: frontend
++  labels:
++    app: frontend
+ spec:
+-  # With 2 replicas, a node drain can never evict both pods at once.
+-  minAvailable: 1
++  # maxUnavailable, not minAvailable: the HPA moves the replica count between 2
++  # and 6, and a fixed `minAvailable: 1` would let a node drain evict 5 of 6 pods
++  # at once. This evicts at most one pod at a time at any size (with 2 replicas it
++  # is the same as minAvailable: 1).
++  #
++  # Applies to voluntary disruptions only (node drain, cluster upgrade, Karpenter
++  # or Cluster Autoscaler scale-down). It does not stop a crash or node failure.
++  maxUnavailable: 1
+   selector:
+     matchLabels:
+       app: frontend
+diff --git a/monitoring/README.md b/monitoring/README.md
+new file mode 100644
+index 0000000..5cbffa5
+--- /dev/null
++++ b/monitoring/README.md
+@@ -0,0 +1,93 @@
++# Monitoring: Prometheus, Grafana and Alertmanager
++
++Metrics, dashboards and alerting for the frontend on EKS, installed with the
++`kube-prometheus-stack` Helm chart into the `monitoring` namespace.
++
++```text
++monitoring/
++├── kube-prometheus-stack-values.yaml   Helm values (EKS-tuned: no control-plane scrapes, gp3 volumes)
++├── storageclass-gp3.yaml               gp3 EBS class, applied only if "gp3" does not exist
++└── app/                                applied after the Helm install (needs the operator CRDs)
++    ├── kustomization.yaml
++    ├── servicemonitor.yaml             scrape the nginx-exporter sidecar in prod and testing
++    ├── prometheusrule.yaml             alerts: down, crash loop, OOM, restarts, HPA, PDB
++    └── grafana-dashboard.yaml          "Frontend overview" dashboard (loaded by the Grafana sidecar)
++```
++
++## How the metrics flow
++
++```text
++nginx (stub_status on 127.0.0.1:8080)
++   -> nginx-exporter sidecar (:9113 /metrics)
++      -> Service "frontend" port "metrics"
++         -> ServiceMonitor (monitoring/app) -> Prometheus -> Grafana + Alertmanager -> Slack
++```
++
++Pod CPU, memory, restarts, HPA and PDB state come from cAdvisor and
++kube-state-metrics, which the chart already scrapes. Only the nginx request and
++connection metrics need the sidecar.
++
++## One-time setup
++
++1. **EBS CSI driver** add-on on the cluster (the volumes are gp3):
++   `aws eks create-addon --cluster-name eks-cluster --addon-name aws-ebs-csi-driver --region ap-south-2`
++   (the add-on's service account needs the `AmazonEBSCSIDriverPolicy`).
++2. **GitHub secrets**: `GRAFANA_ADMIN_PASSWORD` (required), `ALERTMANAGER_SLACK_WEBHOOK`
++   (optional; without it alerts fire but are not delivered).
++3. **EKS access for the pipeline**: the Helm chart installs CRDs and cluster-wide
++   RBAC, so the role used by `monitoring.yml` needs cluster-admin. Use a separate
++   role in the `AWS_PROD_ROLE_ARN` secret rather than widening the app-deploy role.
++4. Merge to `main`. The `Monitoring` workflow runs behind the `production`
++   environment approval. The first run prints the chart version it installed;
++   set it as the `KPS_CHART_VERSION` repository variable to pin it.
++
++## Opening the UIs
++
++Nothing is exposed to the internet. Use port-forward:
++
++```bash
++kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80
++# http://localhost:3000   user: admin   password: the GRAFANA_ADMIN_PASSWORD secret
++kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090
++kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-alertmanager 9093
++```
++
++## Alerts
++
++| Alert | Severity | Fires when |
++|---|---|---|
++| FrontendDown | critical | prod exporter target or nginx unreachable for 2m |
++| FrontendNoReadyReplicas | critical | prod has 0 available pods for 1m |
++| FrontendCrashLooping | critical | a frontend container is in CrashLoopBackOff for 5m |
++| FrontendTestingDown | warning | testing target down for 10m |
++| FrontendReplicasUnavailable | warning | fewer available than desired pods for 10m |
++| FrontendPodRestarting | warning | more than 2 restarts in 15m |
++| FrontendOOMKilled | warning | a container restarted and was last OOMKilled |
++| FrontendMemoryNearLimit | warning | memory above 90% of the limit for 10m |
++| FrontendHPAMaxedOut | warning | HPA at maxReplicas for 15m |
++| FrontendHPANotScaling | warning | HPA cannot read metrics for 10m |
++| FrontendPDBBlockingDrains | warning | prod PDB allows 0 disruptions for 30m |
++
++Critical alerts repeat hourly and inhibit the matching warning. The built-in
++`Watchdog` alert is routed to a null receiver. To confirm Slack delivery, silence
++nothing and run: `kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-alertmanager 9093`
++then POST a test alert to `http://localhost:9093/api/v2/alerts`.
++
++## Autoscaling and availability (k8s/)
++
++| | testing | prod |
++|---|---|---|
++| HPA (CPU 70% of request, `frontend` container) | 1 to 2 pods | 2 to 6 pods |
++| PodDisruptionBudget | none (1 pod would block every drain) | `maxUnavailable: 1` |
++| Zone spread | none | `topologySpreadConstraints`, ScheduleAnyway |
++| Rolling update | default | `maxUnavailable: 0`, `maxSurge: 1` |
++
++The Deployment sets no `replicas`; the HPA owns the count. The HPA needs
++metrics-server, which `monitoring.yml` installs if the cluster lacks it.
++
++## Not covered (ideas for later)
++
++- nginx `stub_status` has no per-status-code counters, so there is no 5xx error-rate
++  alert. ALB 5xx and target response time are in CloudWatch (`AWS/ApplicationELB`);
++  add the CloudWatch exporter (or YACE) to alert on them.
++- Logs: nginx already writes JSON access logs to stdout, ready for Loki or CloudWatch Logs.
+diff --git a/monitoring/app/grafana-dashboard.yaml b/monitoring/app/grafana-dashboard.yaml
+new file mode 100644
+index 0000000..c4f76a8
+--- /dev/null
++++ b/monitoring/app/grafana-dashboard.yaml
+@@ -0,0 +1,657 @@
++apiVersion: v1
++kind: ConfigMap
++metadata:
++  name: frontend-dashboard
++  namespace: monitoring
++  labels:
++    # The Grafana sidecar loads every ConfigMap with this label (any namespace).
++    grafana_dashboard: "1"
++    app: frontend
++data:
++  frontend-overview.json: |-
++    {
++      "uid": "frontend-overview",
++      "title": "Frontend overview",
++      "tags": [
++        "frontend",
++        "eks"
++      ],
++      "schemaVersion": 39,
++      "version": 1,
++      "editable": true,
++      "refresh": "30s",
++      "time": {
++        "from": "now-3h",
++        "to": "now"
++      },
++      "timezone": "browser",
++      "templating": {
++        "list": [
++          {
++            "name": "namespace",
++            "label": "Namespace",
++            "type": "query",
++            "datasource": {
++              "type": "prometheus",
++              "uid": "prometheus"
++            },
++            "query": {
++              "query": "label_values(kube_deployment_spec_replicas{deployment=\"frontend\"}, namespace)",
++              "refId": "ns"
++            },
++            "definition": "label_values(kube_deployment_spec_replicas{deployment=\"frontend\"}, namespace)",
++            "refresh": 2,
++            "includeAll": true,
++            "multi": true,
++            "current": {
++              "selected": true,
++              "text": "All",
++              "value": "$__all"
++            },
++            "sort": 1
++          }
++        ]
++      },
++      "annotations": {
++        "list": []
++      },
++      "panels": [
++        {
++          "id": 1,
++          "type": "stat",
++          "title": "Frontend up",
++          "description": "1 when the nginx-exporter can read nginx stub_status in every selected namespace.",
++          "datasource": {
++            "type": "prometheus",
++            "uid": "prometheus"
++          },
++          "gridPos": {
++            "h": 4,
++            "w": 6,
++            "x": 0,
++            "y": 0
++          },
++          "targets": [
++            {
++              "datasource": {
++                "type": "prometheus",
++                "uid": "prometheus"
++              },
++              "expr": "min(nginx_up{job=\"frontend\", namespace=~\"$namespace\"})",
++              "legendFormat": "",
++              "refId": "A"
++            }
++          ],
++          "fieldConfig": {
++            "defaults": {
++              "unit": "none",
++              "mappings": [
++                {
++                  "type": "value",
++                  "options": {
++                    "0": {
++                      "text": "DOWN",
++                      "color": "red"
++                    },
++                    "1": {
++                      "text": "UP",
++                      "color": "green"
++                    }
++                  }
++                }
++              ],
++              "thresholds": {
++                "mode": "absolute",
++                "steps": [
++                  {
++                    "color": "red",
++                    "value": null
++                  },
++                  {
++                    "color": "green",
++                    "value": 1
++                  }
++                ]
++              }
++            },
++            "overrides": []
++          },
++          "options": {
++            "reduceOptions": {
++              "calcs": [
++                "lastNotNull"
++              ],
++              "fields": "",
++              "values": false
++            },
++            "colorMode": "background",
++            "graphMode": "none",
++            "textMode": "auto",
++            "justifyMode": "center"
++          }
++        },
++        {
++          "id": 2,
++          "type": "stat",
++          "title": "Available replicas",
++          "description": "",
++          "datasource": {
++            "type": "prometheus",
++            "uid": "prometheus"
++          },
++          "gridPos": {
++            "h": 4,
++            "w": 6,
++            "x": 6,
++            "y": 0
++          },
++          "targets": [
++            {
++              "datasource": {
++                "type": "prometheus",
++                "uid": "prometheus"
++              },
++              "expr": "sum(kube_deployment_status_replicas_available{deployment=\"frontend\", namespace=~\"$namespace\"})",
++              "legendFormat": "",
++              "refId": "A"
++            }
++          ],
++          "fieldConfig": {
++            "defaults": {
++              "unit": "none",
++              "mappings": [],
++              "thresholds": {
++                "mode": "absolute",
++                "steps": [
++                  {
++                    "color": "red",
++                    "value": null
++                  },
++                  {
++                    "color": "orange",
++                    "value": 1
++                  },
++                  {
++                    "color": "green",
++                    "value": 2
++                  }
++                ]
++              }
++            },
++            "overrides": []
++          },
++          "options": {
++            "reduceOptions": {
++              "calcs": [
++                "lastNotNull"
++              ],
++              "fields": "",
++              "values": false
++            },
++            "colorMode": "background",
++            "graphMode": "none",
++            "textMode": "auto",
++            "justifyMode": "center"
++          }
++        },
++        {
++          "id": 3,
++          "type": "stat",
++          "title": "Pod restarts (1h)",
++          "description": "",
++          "datasource": {
++            "type": "prometheus",
++            "uid": "prometheus"
++          },
++          "gridPos": {
++            "h": 4,
++            "w": 6,
++            "x": 12,
++            "y": 0
++          },
++          "targets": [
++            {
++              "datasource": {
++                "type": "prometheus",
++                "uid": "prometheus"
++              },
++              "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=~\"$namespace\", pod=~\"frontend-.*\"}[1h]))",
++              "legendFormat": "",
++              "refId": "A"
++            }
++          ],
++          "fieldConfig": {
++            "defaults": {
++              "unit": "none",
++              "mappings": [],
++              "thresholds": {
++                "mode": "absolute",
++                "steps": [
++                  {
++                    "color": "green",
++                    "value": null
++                  },
++                  {
++                    "color": "orange",
++                    "value": 1
++                  },
++                  {
++                    "color": "red",
++                    "value": 3
++                  }
++                ]
++              }
++            },
++            "overrides": []
++          },
++          "options": {
++            "reduceOptions": {
++              "calcs": [
++                "lastNotNull"
++              ],
++              "fields": "",
++              "values": false
++            },
++            "colorMode": "background",
++            "graphMode": "none",
++            "textMode": "auto",
++            "justifyMode": "center"
++          }
++        },
++        {
++          "id": 4,
++          "type": "stat",
++          "title": "Requests / sec",
++          "description": "",
++          "datasource": {
++            "type": "prometheus",
++            "uid": "prometheus"
++          },
++          "gridPos": {
++            "h": 4,
++            "w": 6,
++            "x": 18,
++            "y": 0
++          },
++          "targets": [
++            {
++              "datasource": {
++                "type": "prometheus",
++                "uid": "prometheus"
++              },
++              "expr": "sum(rate(nginx_http_requests_total{job=\"frontend\", namespace=~\"$namespace\"}[5m]))",
++              "legendFormat": "",
++              "refId": "A"
++            }
++          ],
++          "fieldConfig": {
++            "defaults": {
++              "unit": "reqps",
++              "mappings": [],
++              "thresholds": {
++                "mode": "absolute",
++                "steps": [
++                  {
++                    "color": "green",
++                    "value": null
++                  }
++                ]
++              }
++            },
++            "overrides": []
++          },
++          "options": {
++            "reduceOptions": {
++              "calcs": [
++                "lastNotNull"
++              ],
++              "fields": "",
++              "values": false
++            },
++            "colorMode": "background",
++            "graphMode": "none",
++            "textMode": "auto",
++            "justifyMode": "center"
++          }
++        },
++        {
++          "id": 5,
++          "type": "timeseries",
++          "title": "Requests per second",
++          "description": "",
++          "datasource": {
++            "type": "prometheus",
++            "uid": "prometheus"
++          },
++          "gridPos": {
++            "h": 8,
++            "w": 12,
++            "x": 0,
++            "y": 4
++          },
++          "targets": [
++            {
++              "datasource": {
++                "type": "prometheus",
++                "uid": "prometheus"
++              },
++              "expr": "sum by (namespace) (rate(nginx_http_requests_total{job=\"frontend\", namespace=~\"$namespace\"}[5m]))",
++              "legendFormat": "{{namespace}}",
++              "refId": "A"
++            }
++          ],
++          "fieldConfig": {
++            "defaults": {
++              "unit": "reqps",
++              "custom": {
++                "lineWidth": 1,
++                "fillOpacity": 10,
++                "showPoints": "never"
++              }
++            },
++            "overrides": []
++          },
++          "options": {
++            "legend": {
++              "displayMode": "list",
++              "placement": "bottom",
++              "showLegend": true
++            },
++            "tooltip": {
++              "mode": "multi",
++              "sort": "desc"
++            }
++          }
++        },
++        {
++          "id": 6,
++          "type": "timeseries",
++          "title": "Connections",
++          "description": "Active includes connections being read, written and waiting.",
++          "datasource": {
++            "type": "prometheus",
++            "uid": "prometheus"
++          },
++          "gridPos": {
++            "h": 8,
++            "w": 12,
++            "x": 12,
++            "y": 4
++          },
++          "targets": [
++            {
++              "datasource": {
++                "type": "prometheus",
++                "uid": "prometheus"
++              },
++              "expr": "sum by (namespace) (nginx_connections_active{job=\"frontend\", namespace=~\"$namespace\"})",
++              "legendFormat": "active {{namespace}}",
++              "refId": "A"
++            },
++            {
++              "datasource": {
++                "type": "prometheus",
++                "uid": "prometheus"
++              },
++              "expr": "sum by (namespace) (nginx_connections_waiting{job=\"frontend\", namespace=~\"$namespace\"})",
++              "legendFormat": "waiting (keep-alive) {{namespace}}",
++              "refId": "B"
++            }
++          ],
++          "fieldConfig": {
++            "defaults": {
++              "unit": "none",
++              "custom": {
++                "lineWidth": 1,
++                "fillOpacity": 10,
++                "showPoints": "never"
++              }
++            },
++            "overrides": []
++          },
++          "options": {
++            "legend": {
++              "displayMode": "list",
++              "placement": "bottom",
++              "showLegend": true
++            },
++            "tooltip": {
++              "mode": "multi",
++              "sort": "desc"
++            }
++          }
++        },
++        {
++          "id": 7,
++          "type": "timeseries",
++          "title": "Frontend CPU: usage vs request",
++          "description": "The HPA scales when usage averages above 70% of the request.",
++          "datasource": {
++            "type": "prometheus",
++            "uid": "prometheus"
++          },
++          "gridPos": {
++            "h": 8,
++            "w": 12,
++            "x": 0,
++            "y": 12
++          },
++          "targets": [
++            {
++              "datasource": {
++                "type": "prometheus",
++                "uid": "prometheus"
++              },
++              "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\", container=\"frontend\"}[5m]))",
++              "legendFormat": "usage {{pod}}",
++              "refId": "A"
++            },
++            {
++              "datasource": {
++                "type": "prometheus",
++                "uid": "prometheus"
++              },
++              "expr": "sum(kube_pod_container_resource_requests{namespace=~\"$namespace\", container=\"frontend\", resource=\"cpu\"}) / count(kube_pod_container_resource_requests{namespace=~\"$namespace\", container=\"frontend\", resource=\"cpu\"})",
++              "legendFormat": "request per pod",
++              "refId": "B"
++            }
++          ],
++          "fieldConfig": {
++            "defaults": {
++              "unit": "cores",
++              "custom": {
++                "lineWidth": 1,
++                "fillOpacity": 10,
++                "showPoints": "never"
++              }
++            },
++            "overrides": []
++          },
++          "options": {
++            "legend": {
++              "displayMode": "list",
++              "placement": "bottom",
++              "showLegend": true
++            },
++            "tooltip": {
++              "mode": "multi",
++              "sort": "desc"
++            }
++          }
++        },
++        {
++          "id": 8,
++          "type": "timeseries",
++          "title": "Frontend memory: working set vs limit",
++          "description": "",
++          "datasource": {
++            "type": "prometheus",
++            "uid": "prometheus"
++          },
++          "gridPos": {
++            "h": 8,
++            "w": 12,
++            "x": 12,
++            "y": 12
++          },
++          "targets": [
++            {
++              "datasource": {
++                "type": "prometheus",
++                "uid": "prometheus"
++              },
++              "expr": "container_memory_working_set_bytes{namespace=~\"$namespace\", container=\"frontend\"}",
++              "legendFormat": "{{pod}}",
++              "refId": "A"
++            },
++            {
++              "datasource": {
++                "type": "prometheus",
++                "uid": "prometheus"
++              },
++              "expr": "max(kube_pod_container_resource_limits{namespace=~\"$namespace\", container=\"frontend\", resource=\"memory\"})",
++              "legendFormat": "limit",
++              "refId": "B"
++            }
++          ],
++          "fieldConfig": {
++            "defaults": {
++              "unit": "bytes",
++              "custom": {
++                "lineWidth": 1,
++                "fillOpacity": 10,
++                "showPoints": "never"
++              }
++            },
++            "overrides": []
++          },
++          "options": {
++            "legend": {
++              "displayMode": "list",
++              "placement": "bottom",
++              "showLegend": true
++            },
++            "tooltip": {
++              "mode": "multi",
++              "sort": "desc"
++            }
++          }
++        },
++        {
++          "id": 9,
++          "type": "timeseries",
++          "title": "HPA replicas",
++          "description": "",
++          "datasource": {
++            "type": "prometheus",
++            "uid": "prometheus"
++          },
++          "gridPos": {
++            "h": 8,
++            "w": 12,
++            "x": 0,
++            "y": 20
++          },
++          "targets": [
++            {
++              "datasource": {
++                "type": "prometheus",
++                "uid": "prometheus"
++              },
++              "expr": "sum by (namespace) (kube_horizontalpodautoscaler_status_current_replicas{horizontalpodautoscaler=\"frontend\", namespace=~\"$namespace\"})",
++              "legendFormat": "current {{namespace}}",
++              "refId": "A"
++            },
++            {
++              "datasource": {
++                "type": "prometheus",
++                "uid": "prometheus"
++              },
++              "expr": "sum by (namespace) (kube_horizontalpodautoscaler_status_desired_replicas{horizontalpodautoscaler=\"frontend\", namespace=~\"$namespace\"})",
++              "legendFormat": "desired {{namespace}}",
++              "refId": "B"
++            },
++            {
++              "datasource": {
++                "type": "prometheus",
++                "uid": "prometheus"
++              },
++              "expr": "sum by (namespace) (kube_horizontalpodautoscaler_spec_max_replicas{horizontalpodautoscaler=\"frontend\", namespace=~\"$namespace\"})",
++              "legendFormat": "max {{namespace}}",
++              "refId": "C"
++            }
++          ],
++          "fieldConfig": {
++            "defaults": {
++              "unit": "none",
++              "custom": {
++                "lineWidth": 1,
++                "fillOpacity": 10,
++                "showPoints": "never"
++              }
++            },
++            "overrides": []
++          },
++          "options": {
++            "legend": {
++              "displayMode": "list",
++              "placement": "bottom",
++              "showLegend": true
++            },
++            "tooltip": {
++              "mode": "multi",
++              "sort": "desc"
++            }
++          }
++        },
++        {
++          "id": 10,
++          "type": "timeseries",
++          "title": "Pod restarts",
++          "description": "Cumulative restart counter per container.",
++          "datasource": {
++            "type": "prometheus",
++            "uid": "prometheus"
++          },
++          "gridPos": {
++            "h": 8,
++            "w": 12,
++            "x": 12,
++            "y": 20
++          },
++          "targets": [
++            {
++              "datasource": {
++                "type": "prometheus",
++                "uid": "prometheus"
++              },
++              "expr": "sum by (pod, container) (kube_pod_container_status_restarts_total{namespace=~\"$namespace\", pod=~\"frontend-.*\"})",
++              "legendFormat": "{{pod}} / {{container}}",
++              "refId": "A"
++            }
++          ],
++          "fieldConfig": {
++            "defaults": {
++              "unit": "none",
++              "custom": {
++                "lineWidth": 1,
++                "fillOpacity": 10,
++                "showPoints": "never"
++              }
++            },
++            "overrides": []
++          },
++          "options": {
++            "legend": {
++              "displayMode": "list",
++              "placement": "bottom",
++              "showLegend": true
++            },
++            "tooltip": {
++              "mode": "multi",
++              "sort": "desc"
++            }
++          }
++        }
++      ]
++    }
+diff --git a/monitoring/app/kustomization.yaml b/monitoring/app/kustomization.yaml
+new file mode 100644
+index 0000000..d076d7d
+--- /dev/null
++++ b/monitoring/app/kustomization.yaml
+@@ -0,0 +1,14 @@
++apiVersion: kustomize.config.k8s.io/v1beta1
++kind: Kustomization
++
++# Application-level monitoring objects. They need the Prometheus Operator CRDs
++# (ServiceMonitor, PrometheusRule), so they live here and are applied by
++# .github/workflows/monitoring.yml AFTER the kube-prometheus-stack install, not
++# in the k8s/overlays app deploy. Putting them in the app overlays would make the
++# app deploy fail on a cluster where the CRDs do not exist yet.
++namespace: monitoring
++
++resources:
++  - servicemonitor.yaml
++  - prometheusrule.yaml
++  - grafana-dashboard.yaml
+diff --git a/monitoring/app/prometheusrule.yaml b/monitoring/app/prometheusrule.yaml
+new file mode 100644
+index 0000000..1dc3e88
+--- /dev/null
++++ b/monitoring/app/prometheusrule.yaml
+@@ -0,0 +1,152 @@
++apiVersion: monitoring.coreos.com/v1
++kind: PrometheusRule
++metadata:
++  name: frontend-alerts
++  namespace: monitoring
++  labels:
++    app: frontend
++spec:
++  groups:
++    # ---------------------------------------------------------------------
++    # Availability: is the app up and are its pods healthy?
++    # ---------------------------------------------------------------------
++    - name: frontend.availability
++      rules:
++        - alert: FrontendDown
++          # The exporter target is gone or nginx stopped answering stub_status.
++          # Prod is critical; testing is only a warning.
++          expr: |
++            up{job="frontend", namespace="prod"} == 0
++              or nginx_up{job="frontend", namespace="prod"} == 0
++          for: 2m
++          labels:
++            severity: critical
++          annotations:
++            summary: "Frontend metrics target down in {{ $labels.namespace }}"
++            description: "Pod {{ $labels.pod }} is not reporting. Check: kubectl -n {{ $labels.namespace }} get pods -l app=frontend; kubectl -n {{ $labels.namespace }} describe pod {{ $labels.pod }}"
++
++        - alert: FrontendTestingDown
++          expr: |
++            up{job="frontend", namespace="testing"} == 0
++              or nginx_up{job="frontend", namespace="testing"} == 0
++          for: 10m
++          labels:
++            severity: warning
++          annotations:
++            summary: "Frontend metrics target down in testing"
++            description: "Pod {{ $labels.pod }} has not reported for 10 minutes."
++
++        - alert: FrontendNoReadyReplicas
++          # Zero pods serving traffic: a full outage even if every target looks fine.
++          expr: |
++            kube_deployment_status_replicas_available{deployment="frontend", namespace="prod"} == 0
++          for: 1m
++          labels:
++            severity: critical
++          annotations:
++            summary: "No available frontend replicas in prod"
++            description: "The prod frontend Deployment has 0 available pods. The ALB has no healthy targets."
++
++        - alert: FrontendReplicasUnavailable
++          # Fewer pods available than the Deployment wants, for a sustained period
++          # (a normal rollout finishes well within 10 minutes).
++          expr: |
++            kube_deployment_status_replicas_available{deployment="frontend", namespace=~"prod|testing"}
++              < kube_deployment_spec_replicas{deployment="frontend", namespace=~"prod|testing"}
++          for: 10m
++          labels:
++            severity: warning
++          annotations:
++            summary: "Frontend in {{ $labels.namespace }} is below its desired replica count"
++            description: "Available replicas are lower than desired for 10 minutes. Check: kubectl -n {{ $labels.namespace }} rollout status deployment/frontend; kubectl -n {{ $labels.namespace }} get events --sort-by=.lastTimestamp"
++
++    # ---------------------------------------------------------------------
++    # Pod health: restarts, crash loops, OOM
++    # ---------------------------------------------------------------------
++    - name: frontend.pods
++      rules:
++        - alert: FrontendPodRestarting
++          expr: |
++            increase(kube_pod_container_status_restarts_total{namespace=~"prod|testing", pod=~"frontend-.*"}[15m]) > 2
++          for: 0m
++          labels:
++            severity: warning
++          annotations:
++            summary: "{{ $labels.container }} in {{ $labels.pod }} restarted more than twice in 15m"
++            description: "Check: kubectl -n {{ $labels.namespace }} logs {{ $labels.pod }} -c {{ $labels.container }} --previous"
++
++        - alert: FrontendCrashLooping
++          expr: |
++            kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff", namespace=~"prod|testing", pod=~"frontend-.*"} == 1
++          for: 5m
++          labels:
++            severity: critical
++          annotations:
++            summary: "{{ $labels.pod }} is in CrashLoopBackOff"
++            description: "Check: kubectl -n {{ $labels.namespace }} describe pod {{ $labels.pod }}; kubectl -n {{ $labels.namespace }} logs {{ $labels.pod }} -c {{ $labels.container }} --previous. If a deploy caused it, the pipeline's auto-rollback or a manual rollback restores the previous image."
++
++        - alert: FrontendOOMKilled
++          # Container was restarted recently AND its last termination reason was OOMKilled.
++          expr: |
++            increase(kube_pod_container_status_restarts_total{namespace=~"prod|testing", pod=~"frontend-.*"}[10m]) > 0
++              and on (namespace, pod, container)
++            kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} == 1
++          for: 0m
++          labels:
++            severity: warning
++          annotations:
++            summary: "{{ $labels.container }} in {{ $labels.pod }} was OOMKilled"
++            description: "Exit code 137: the container hit its memory limit. Raise the limit in k8s/base/deployment.yaml or find the leak."
++
++        - alert: FrontendMemoryNearLimit
++          expr: |
++            container_memory_working_set_bytes{namespace=~"prod|testing", pod=~"frontend-.*", container=~"frontend|nginx-exporter"}
++              / on (namespace, pod, container)
++            kube_pod_container_resource_limits{resource="memory"} > 0.9
++          for: 10m
++          labels:
++            severity: warning
++          annotations:
++            summary: "{{ $labels.container }} in {{ $labels.pod }} is above 90% of its memory limit"
++            description: "It will be OOMKilled if it keeps growing."
++
++    # ---------------------------------------------------------------------
++    # Autoscaling and disruption budget
++    # ---------------------------------------------------------------------
++    - name: frontend.scaling
++      rules:
++        - alert: FrontendHPAMaxedOut
++          # At the ceiling for 15 minutes: more load than the max replicas can serve.
++          expr: |
++            kube_horizontalpodautoscaler_status_current_replicas{horizontalpodautoscaler="frontend", namespace=~"prod|testing"}
++              >= kube_horizontalpodautoscaler_spec_max_replicas{horizontalpodautoscaler="frontend", namespace=~"prod|testing"}
++          for: 15m
++          labels:
++            severity: warning
++          annotations:
++            summary: "Frontend HPA in {{ $labels.namespace }} has been at max replicas for 15m"
++            description: "Raise maxReplicas in the overlay or investigate the traffic spike."
++
++        - alert: FrontendHPANotScaling
++          # The HPA cannot read metrics (metrics-server down or no CPU request), so
++          # it can neither scale up nor down.
++          expr: |
++            kube_horizontalpodautoscaler_status_condition{condition="ScalingActive", status="false", horizontalpodautoscaler="frontend", namespace=~"prod|testing"} == 1
++          for: 10m
++          labels:
++            severity: warning
++          annotations:
++            summary: "Frontend HPA in {{ $labels.namespace }} is not active"
++            description: "Check: kubectl -n {{ $labels.namespace }} describe hpa frontend; kubectl top pods -n {{ $labels.namespace }}; kubectl -n kube-system get deployment metrics-server"
++
++        - alert: FrontendPDBBlockingDrains
++          # Zero allowed disruptions for 30m means a node drain or cluster upgrade
++          # would hang waiting on this PDB (for example only 1 replica running).
++          expr: |
++            kube_poddisruptionbudget_status_pod_disruptions_allowed{poddisruptionbudget="frontend", namespace="prod"} == 0
++          for: 30m
++          labels:
++            severity: warning
++          annotations:
++            summary: "The prod frontend PDB currently allows no disruptions"
++            description: "Node drains and upgrades will block. Check the replica count and pod readiness: kubectl -n prod get pdb,deploy,pods -l app=frontend"
+diff --git a/monitoring/app/servicemonitor.yaml b/monitoring/app/servicemonitor.yaml
+new file mode 100644
+index 0000000..dd46028
+--- /dev/null
++++ b/monitoring/app/servicemonitor.yaml
+@@ -0,0 +1,24 @@
++apiVersion: monitoring.coreos.com/v1
++kind: ServiceMonitor
++metadata:
++  name: frontend
++  namespace: monitoring
++  labels:
++    app: frontend
++spec:
++  # The ServiceMonitor lives in "monitoring" but scrapes Services in the app
++  # namespaces. Prometheus finds it because the values file turns off the
++  # release-label selector (serviceMonitorSelectorNilUsesHelmValues: false).
++  namespaceSelector:
++    matchNames:
++      - prod
++      - testing
++  selector:
++    matchLabels:
++      app: frontend
++  endpoints:
++    # The Service port named "metrics" (9113), served by the nginx-exporter sidecar.
++    - port: metrics
++      path: /metrics
++      interval: 30s
++      scrapeTimeout: 10s
+diff --git a/monitoring/kube-prometheus-stack-values.yaml b/monitoring/kube-prometheus-stack-values.yaml
+new file mode 100644
+index 0000000..c25d0e8
+--- /dev/null
++++ b/monitoring/kube-prometheus-stack-values.yaml
+@@ -0,0 +1,201 @@
++# =============================================================================
++# kube-prometheus-stack values for the EKS cluster (Prometheus, Alertmanager,
++# Grafana, kube-state-metrics, node-exporter, Prometheus Operator).
++#
++# Installed by .github/workflows/monitoring.yml as Helm release "monitoring" in
++# namespace "monitoring":
++#   helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
++#     -n monitoring --create-namespace -f monitoring/kube-prometheus-stack-values.yaml
++#
++# Prerequisites in the cluster:
++#   - EBS CSI driver add-on (for the gp3 volumes below; see storageclass-gp3.yaml)
++#   - Secrets created by the workflow: grafana-admin, alertmanager-slack
++#
++# Sizing is deliberately modest (a small shared cluster). Raise retention and
++# storage if you want longer history.
++# =============================================================================
++
++# ---- EKS specifics ----------------------------------------------------------
++# EKS runs etcd, the scheduler and the controller manager on the AWS-managed
++# control plane, so Prometheus cannot scrape them. Leaving them enabled only
++# produces permanent "TargetDown" noise. kube-proxy on EKS binds its metrics to
++# localhost, so it is skipped too.
++kubeEtcd:
++  enabled: false
++kubeControllerManager:
++  enabled: false
++kubeScheduler:
++  enabled: false
++kubeProxy:
++  enabled: false
++
++defaultRules:
++  create: true
++  rules:
++    etcd: false
++    kubeControllerManager: false
++    kubeSchedulerAlerting: false
++    kubeSchedulerRecording: false
++    kubeProxy: false
++
++# ---- Prometheus -------------------------------------------------------------
++prometheus:
++  prometheusSpec:
++    retention: 7d
++    # Delete the oldest data before the 20Gi volume fills up.
++    retentionSize: 17GB
++
++    # Pick up every ServiceMonitor, PodMonitor, PrometheusRule and Probe in the
++    # cluster, not only ones labelled with this Helm release. The app's
++    # monitoring/app objects rely on this.
++    serviceMonitorSelectorNilUsesHelmValues: false
++    podMonitorSelectorNilUsesHelmValues: false
++    ruleSelectorNilUsesHelmValues: false
++    probeSelectorNilUsesHelmValues: false
++
++    resources:
++      requests:
++        cpu: 200m
++        memory: 900Mi
++      limits:
++        memory: 1600Mi
++
++    storageSpec:
++      volumeClaimTemplate:
++        spec:
++          storageClassName: gp3
++          accessModes: ["ReadWriteOnce"]
++          resources:
++            requests:
++              storage: 20Gi
++
++# ---- Alertmanager -----------------------------------------------------------
++alertmanager:
++  alertmanagerSpec:
++    # Mounted at /etc/alertmanager/secrets/alertmanager-slack/ (key: url). The
++    # webhook URL therefore never appears in this repo or in Helm values.
++    secrets:
++      - alertmanager-slack
++    resources:
++      requests:
++        cpu: 10m
++        memory: 32Mi
++      limits:
++        memory: 128Mi
++    storage:
++      volumeClaimTemplate:
++        spec:
++          storageClassName: gp3
++          accessModes: ["ReadWriteOnce"]
++          resources:
++            requests:
++              storage: 2Gi
++
++  config:
++    global:
++      resolve_timeout: 5m
++    route:
++      receiver: slack
++      group_by: ["alertname", "namespace"]
++      group_wait: 30s
++      group_interval: 5m
++      repeat_interval: 4h
++      routes:
++        # Watchdog always fires; it exists to prove the alert pipeline is alive.
++        - receiver: "null"
++          matchers:
++            - alertname = "Watchdog"
++        - receiver: "null"
++          matchers:
++            - alertname = "InfoInhibitor"
++        # Critical alerts repeat hourly until resolved.
++        - receiver: slack
++          matchers:
++            - severity = "critical"
++          repeat_interval: 1h
++    # A critical alert silences the matching warning for the same alert/namespace,
++    # so one incident does not page twice.
++    inhibit_rules:
++      - source_matchers:
++          - severity = "critical"
++        target_matchers:
++          - severity =~ "warning|info"
++        equal: ["namespace", "alertname"]
++    receivers:
++      - name: "null"
++      - name: slack
++        slack_configs:
++          - api_url_file: /etc/alertmanager/secrets/alertmanager-slack/url
++            send_resolved: true
++
++# ---- Grafana ----------------------------------------------------------------
++grafana:
++  # Admin credentials come from a Secret the workflow creates from the
++  # GRAFANA_ADMIN_PASSWORD GitHub secret. No password in Git.
++  admin:
++    existingSecret: grafana-admin
++    userKey: admin-user
++    passwordKey: admin-password
++
++  # ClusterIP only: nothing is exposed to the internet. Open it with
++  #   kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80
++  # To publish it later, put an *internal* ALB Ingress in front (not
++  # internet-facing) and add SSO.
++  service:
++    type: ClusterIP
++
++  defaultDashboardsTimezone: browser
++
++  # A single RWO volume cannot be attached to two pods, so Recreate avoids a
++  # stuck rollout where the new pod waits for the old pod to release it.
++  deploymentStrategy:
++    type: Recreate
++
++  persistence:
++    enabled: true
++    type: pvc
++    storageClassName: gp3
++    accessModes: ["ReadWriteOnce"]
++    size: 5Gi
++
++  resources:
++    requests:
++      cpu: 50m
++      memory: 128Mi
++    limits:
++      memory: 384Mi
++
++  # Loads any ConfigMap labelled grafana_dashboard=1 from any namespace, which is
++  # how monitoring/app/grafana-dashboard.yaml gets in. Prometheus is provisioned
++  # as the default datasource automatically (uid: prometheus).
++  sidecar:
++    dashboards:
++      enabled: true
++      label: grafana_dashboard
++      labelValue: "1"
++      searchNamespace: ALL
++
++# ---- Small components -------------------------------------------------------
++prometheusOperator:
++  resources:
++    requests:
++      cpu: 20m
++      memory: 64Mi
++    limits:
++      memory: 256Mi
++
++kube-state-metrics:
++  resources:
++    requests:
++      cpu: 10m
++      memory: 32Mi
++    limits:
++      memory: 128Mi
++
++prometheus-node-exporter:
++  resources:
++    requests:
++      cpu: 10m
++      memory: 16Mi
++    limits:
++      memory: 64Mi
+diff --git a/monitoring/storageclass-gp3.yaml b/monitoring/storageclass-gp3.yaml
+new file mode 100644
+index 0000000..34d5e5e
+--- /dev/null
++++ b/monitoring/storageclass-gp3.yaml
+@@ -0,0 +1,19 @@
++# gp3 EBS storage class for the Prometheus, Alertmanager and Grafana volumes.
++# Needs the aws-ebs-csi-driver EKS add-on. EKS clusters usually only ship the
++# old gp2 class, and gp2 is slower and costs more per GB than gp3.
++#
++# The workflow applies this only if a class named "gp3" does not exist yet.
++# StorageClass parameters cannot be edited later: to change them, create a new
++# class under a new name and point the values file at it.
++apiVersion: storage.k8s.io/v1
++kind: StorageClass
++metadata:
++  name: gp3
++provisioner: ebs.csi.aws.com
++parameters:
++  type: gp3
++  encrypted: "true"
++# Create the volume in the same AZ as the pod that first uses it.
++volumeBindingMode: WaitForFirstConsumer
++allowVolumeExpansion: true
++reclaimPolicy: Delete
+diff --git a/nginx.conf b/nginx.conf
+index cadbd7a..5fde121 100644
+--- a/nginx.conf
++++ b/nginx.conf
+@@ -101,4 +101,20 @@ http {
+             try_files $uri $uri/ /index.html;
+         }
+     }
++
++    # Metrics endpoint for the nginx-prometheus-exporter sidecar. A separate
++    # server bound to loopback only, so it is unreachable from the Service, the
++    # ALB or other pods. The sidecar shares the pod's network namespace and reads
++    # it on 127.0.0.1:8080, then re-exposes it as Prometheus metrics on :9113.
++    server {
++        listen      127.0.0.1:8080;
++        server_name _;
++        access_log  off;
++
++        location = /stub_status {
++            stub_status;
++            allow 127.0.0.1;
++            deny  all;
++        }
++    }
+ }
+-- 
+2.43.0
+

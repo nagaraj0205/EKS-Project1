@@ -1,0 +1,201 @@
+# =============================================================================
+# kube-prometheus-stack values for the EKS cluster (Prometheus, Alertmanager,
+# Grafana, kube-state-metrics, node-exporter, Prometheus Operator).
+#
+# Installed by .github/workflows/monitoring.yml as Helm release "monitoring" in
+# namespace "monitoring":
+#   helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+#     -n monitoring --create-namespace -f monitoring/kube-prometheus-stack-values.yaml
+#
+# Prerequisites in the cluster:
+#   - EBS CSI driver add-on (for the gp3 volumes below; see storageclass-gp3.yaml)
+#   - Secrets created by the workflow: grafana-admin, alertmanager-slack
+#
+# Sizing is deliberately modest (a small shared cluster). Raise retention and
+# storage if you want longer history.
+# =============================================================================
+
+# ---- EKS specifics ----------------------------------------------------------
+# EKS runs etcd, the scheduler and the controller manager on the AWS-managed
+# control plane, so Prometheus cannot scrape them. Leaving them enabled only
+# produces permanent "TargetDown" noise. kube-proxy on EKS binds its metrics to
+# localhost, so it is skipped too.
+kubeEtcd:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+
+defaultRules:
+  create: true
+  rules:
+    etcd: false
+    kubeControllerManager: false
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+    kubeProxy: false
+
+# ---- Prometheus -------------------------------------------------------------
+prometheus:
+  prometheusSpec:
+    retention: 7d
+    # Delete the oldest data before the 20Gi volume fills up.
+    retentionSize: 17GB
+
+    # Pick up every ServiceMonitor, PodMonitor, PrometheusRule and Probe in the
+    # cluster, not only ones labelled with this Helm release. The app's
+    # monitoring/app objects rely on this.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+
+    resources:
+      requests:
+        cpu: 200m
+        memory: 900Mi
+      limits:
+        memory: 1600Mi
+
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 20Gi
+
+# ---- Alertmanager -----------------------------------------------------------
+alertmanager:
+  alertmanagerSpec:
+    # Mounted at /etc/alertmanager/secrets/alertmanager-slack/ (key: url). The
+    # webhook URL therefore never appears in this repo or in Helm values.
+    secrets:
+      - alertmanager-slack
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        memory: 128Mi
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 2Gi
+
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      receiver: slack
+      group_by: ["alertname", "namespace"]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        # Watchdog always fires; it exists to prove the alert pipeline is alive.
+        - receiver: "null"
+          matchers:
+            - alertname = "Watchdog"
+        - receiver: "null"
+          matchers:
+            - alertname = "InfoInhibitor"
+        # Critical alerts repeat hourly until resolved.
+        - receiver: slack
+          matchers:
+            - severity = "critical"
+          repeat_interval: 1h
+    # A critical alert silences the matching warning for the same alert/namespace,
+    # so one incident does not page twice.
+    inhibit_rules:
+      - source_matchers:
+          - severity = "critical"
+        target_matchers:
+          - severity =~ "warning|info"
+        equal: ["namespace", "alertname"]
+    receivers:
+      - name: "null"
+      - name: slack
+        slack_configs:
+          - api_url_file: /etc/alertmanager/secrets/alertmanager-slack/url
+            send_resolved: true
+
+# ---- Grafana ----------------------------------------------------------------
+grafana:
+  # Admin credentials come from a Secret the workflow creates from the
+  # GRAFANA_ADMIN_PASSWORD GitHub secret. No password in Git.
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+
+  # ClusterIP only: nothing is exposed to the internet. Open it with
+  #   kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80
+  # To publish it later, put an *internal* ALB Ingress in front (not
+  # internet-facing) and add SSO.
+  service:
+    type: ClusterIP
+
+  defaultDashboardsTimezone: browser
+
+  # A single RWO volume cannot be attached to two pods, so Recreate avoids a
+  # stuck rollout where the new pod waits for the old pod to release it.
+  deploymentStrategy:
+    type: Recreate
+
+  persistence:
+    enabled: true
+    type: pvc
+    storageClassName: gp3
+    accessModes: ["ReadWriteOnce"]
+    size: 5Gi
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 384Mi
+
+  # Loads any ConfigMap labelled grafana_dashboard=1 from any namespace, which is
+  # how monitoring/app/grafana-dashboard.yaml gets in. Prometheus is provisioned
+  # as the default datasource automatically (uid: prometheus).
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+
+# ---- Small components -------------------------------------------------------
+prometheusOperator:
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 16Mi
+    limits:
+      memory: 64Mi

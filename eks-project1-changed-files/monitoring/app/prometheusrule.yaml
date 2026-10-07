@@ -1,0 +1,152 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: frontend-alerts
+  namespace: monitoring
+  labels:
+    app: frontend
+spec:
+  groups:
+    # ---------------------------------------------------------------------
+    # Availability: is the app up and are its pods healthy?
+    # ---------------------------------------------------------------------
+    - name: frontend.availability
+      rules:
+        - alert: FrontendDown
+          # The exporter target is gone or nginx stopped answering stub_status.
+          # Prod is critical; testing is only a warning.
+          expr: |
+            up{job="frontend", namespace="prod"} == 0
+              or nginx_up{job="frontend", namespace="prod"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Frontend metrics target down in {{ $labels.namespace }}"
+            description: "Pod {{ $labels.pod }} is not reporting. Check: kubectl -n {{ $labels.namespace }} get pods -l app=frontend; kubectl -n {{ $labels.namespace }} describe pod {{ $labels.pod }}"
+
+        - alert: FrontendTestingDown
+          expr: |
+            up{job="frontend", namespace="testing"} == 0
+              or nginx_up{job="frontend", namespace="testing"} == 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Frontend metrics target down in testing"
+            description: "Pod {{ $labels.pod }} has not reported for 10 minutes."
+
+        - alert: FrontendNoReadyReplicas
+          # Zero pods serving traffic: a full outage even if every target looks fine.
+          expr: |
+            kube_deployment_status_replicas_available{deployment="frontend", namespace="prod"} == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "No available frontend replicas in prod"
+            description: "The prod frontend Deployment has 0 available pods. The ALB has no healthy targets."
+
+        - alert: FrontendReplicasUnavailable
+          # Fewer pods available than the Deployment wants, for a sustained period
+          # (a normal rollout finishes well within 10 minutes).
+          expr: |
+            kube_deployment_status_replicas_available{deployment="frontend", namespace=~"prod|testing"}
+              < kube_deployment_spec_replicas{deployment="frontend", namespace=~"prod|testing"}
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Frontend in {{ $labels.namespace }} is below its desired replica count"
+            description: "Available replicas are lower than desired for 10 minutes. Check: kubectl -n {{ $labels.namespace }} rollout status deployment/frontend; kubectl -n {{ $labels.namespace }} get events --sort-by=.lastTimestamp"
+
+    # ---------------------------------------------------------------------
+    # Pod health: restarts, crash loops, OOM
+    # ---------------------------------------------------------------------
+    - name: frontend.pods
+      rules:
+        - alert: FrontendPodRestarting
+          expr: |
+            increase(kube_pod_container_status_restarts_total{namespace=~"prod|testing", pod=~"frontend-.*"}[15m]) > 2
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.container }} in {{ $labels.pod }} restarted more than twice in 15m"
+            description: "Check: kubectl -n {{ $labels.namespace }} logs {{ $labels.pod }} -c {{ $labels.container }} --previous"
+
+        - alert: FrontendCrashLooping
+          expr: |
+            kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff", namespace=~"prod|testing", pod=~"frontend-.*"} == 1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.pod }} is in CrashLoopBackOff"
+            description: "Check: kubectl -n {{ $labels.namespace }} describe pod {{ $labels.pod }}; kubectl -n {{ $labels.namespace }} logs {{ $labels.pod }} -c {{ $labels.container }} --previous. If a deploy caused it, the pipeline's auto-rollback or a manual rollback restores the previous image."
+
+        - alert: FrontendOOMKilled
+          # Container was restarted recently AND its last termination reason was OOMKilled.
+          expr: |
+            increase(kube_pod_container_status_restarts_total{namespace=~"prod|testing", pod=~"frontend-.*"}[10m]) > 0
+              and on (namespace, pod, container)
+            kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} == 1
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.container }} in {{ $labels.pod }} was OOMKilled"
+            description: "Exit code 137: the container hit its memory limit. Raise the limit in k8s/base/deployment.yaml or find the leak."
+
+        - alert: FrontendMemoryNearLimit
+          expr: |
+            container_memory_working_set_bytes{namespace=~"prod|testing", pod=~"frontend-.*", container=~"frontend|nginx-exporter"}
+              / on (namespace, pod, container)
+            kube_pod_container_resource_limits{resource="memory"} > 0.9
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.container }} in {{ $labels.pod }} is above 90% of its memory limit"
+            description: "It will be OOMKilled if it keeps growing."
+
+    # ---------------------------------------------------------------------
+    # Autoscaling and disruption budget
+    # ---------------------------------------------------------------------
+    - name: frontend.scaling
+      rules:
+        - alert: FrontendHPAMaxedOut
+          # At the ceiling for 15 minutes: more load than the max replicas can serve.
+          expr: |
+            kube_horizontalpodautoscaler_status_current_replicas{horizontalpodautoscaler="frontend", namespace=~"prod|testing"}
+              >= kube_horizontalpodautoscaler_spec_max_replicas{horizontalpodautoscaler="frontend", namespace=~"prod|testing"}
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Frontend HPA in {{ $labels.namespace }} has been at max replicas for 15m"
+            description: "Raise maxReplicas in the overlay or investigate the traffic spike."
+
+        - alert: FrontendHPANotScaling
+          # The HPA cannot read metrics (metrics-server down or no CPU request), so
+          # it can neither scale up nor down.
+          expr: |
+            kube_horizontalpodautoscaler_status_condition{condition="ScalingActive", status="false", horizontalpodautoscaler="frontend", namespace=~"prod|testing"} == 1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Frontend HPA in {{ $labels.namespace }} is not active"
+            description: "Check: kubectl -n {{ $labels.namespace }} describe hpa frontend; kubectl top pods -n {{ $labels.namespace }}; kubectl -n kube-system get deployment metrics-server"
+
+        - alert: FrontendPDBBlockingDrains
+          # Zero allowed disruptions for 30m means a node drain or cluster upgrade
+          # would hang waiting on this PDB (for example only 1 replica running).
+          expr: |
+            kube_poddisruptionbudget_status_pod_disruptions_allowed{poddisruptionbudget="frontend", namespace="prod"} == 0
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "The prod frontend PDB currently allows no disruptions"
+            description: "Node drains and upgrades will block. Check the replica count and pod readiness: kubectl -n prod get pdb,deploy,pods -l app=frontend"
