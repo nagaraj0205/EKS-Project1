@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Application-level monitoring objects. They need the Prometheus Operator CRDs
+# (ServiceMonitor, PrometheusRule), so they live here and are applied by
+# .github/workflows/monitoring.yml AFTER the kube-prometheus-stack install, not
+# in the k8s/overlays app deploy. Putting them in the app overlays would make the
+# app deploy fail on a cluster where the CRDs do not exist yet.
+namespace: monitoring
+
+resources:
+  - servicemonitor.yaml
+  - prometheusrule.yaml
+  - grafana-dashboard.yaml

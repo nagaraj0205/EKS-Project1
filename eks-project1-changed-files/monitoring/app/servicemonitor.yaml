@@ -1,0 +1,24 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: frontend
+  namespace: monitoring
+  labels:
+    app: frontend
+spec:
+  # The ServiceMonitor lives in "monitoring" but scrapes Services in the app
+  # namespaces. Prometheus finds it because the values file turns off the
+  # release-label selector (serviceMonitorSelectorNilUsesHelmValues: false).
+  namespaceSelector:
+    matchNames:
+      - prod
+      - testing
+  selector:
+    matchLabels:
+      app: frontend
+  endpoints:
+    # The Service port named "metrics" (9113), served by the nginx-exporter sidecar.
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s

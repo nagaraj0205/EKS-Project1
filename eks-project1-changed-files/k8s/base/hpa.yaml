@@ -1,0 +1,49 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: frontend
+  labels:
+    app: frontend
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: frontend
+
+  # Base values suit testing. The prod overlay raises them (min 2, max 6).
+  minReplicas: 1
+  maxReplicas: 2
+
+  metrics:
+    # ContainerResource, not Resource: the pod now has two containers (frontend
+    # and the nginx-exporter sidecar). A plain Resource metric averages across
+    # all containers and would dilute the signal. This looks at `frontend` only.
+    # Needs Kubernetes 1.30+ (beta and on by default from 1.27).
+    - type: ContainerResource
+      containerResource:
+        name: cpu
+        container: frontend
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+  behavior:
+    # Scale up fast: users are waiting.
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      selectPolicy: Max
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+        - type: Percent
+          value: 100
+          periodSeconds: 60
+    # Scale down slowly: wait 5 minutes of low load, then one pod per minute, so a
+    # traffic dip does not cause flapping.
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
