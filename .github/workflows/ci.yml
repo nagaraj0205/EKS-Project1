@@ -9,7 +9,7 @@ name: EKS CI/CD
 #   main       --merge->  CI + SonarCloud scan (main only) -> production environment approval
 #                                                   -> deploy the SAME image tested on testing
 #
-# The image is built exactly once (on the testing branch) and promoted unchanged to
+# The  image is built exactly once (on the testing branch) and promoted unchanged to
 # prod. Prod never rebuilds, so prod runs the bytes that were tested.
 # ==========================================================
 on:
