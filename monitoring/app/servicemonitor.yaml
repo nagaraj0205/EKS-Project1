@@ -1,0 +1,19 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: frontend
+  labels:
+    app: frontend
+spec:
+  namespaceSelector:
+    matchNames:
+      - prod
+      - testing
+  selector:
+    matchLabels:
+      app: frontend
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s

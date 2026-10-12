@@ -1,0 +1,75 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-dashboard
+  labels:
+    app: frontend
+    grafana_dashboard: "1"
+data:
+  frontend-overview.json: |-
+    {
+      "uid": "frontend-overview",
+      "title": "Frontend overview",
+      "tags": ["frontend", "eks"],
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": {"from": "now-3h", "to": "now"},
+      "templating": {
+        "list": [
+          {
+            "name": "namespace",
+            "label": "Namespace",
+            "type": "custom",
+            "query": "prod,testing",
+            "current": {"selected": true, "text": "prod", "value": "prod"},
+            "options": [
+              {"selected": true, "text": "prod", "value": "prod"},
+              {"selected": false, "text": "testing", "value": "testing"}
+            ]
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "title": "HTTP requests per second",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+          "targets": [
+            {"expr": "sum(rate(nginx_http_requests_total{namespace=~\"$namespace\"}[5m]))", "legendFormat": "requests/sec", "refId": "A"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []}
+        },
+        {
+          "id": 2,
+          "title": "Active Nginx connections",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+          "targets": [
+            {"expr": "sum(nginx_connections_active{namespace=~\"$namespace\"})", "legendFormat": "active", "refId": "A"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+        },
+        {
+          "id": 3,
+          "title": "Frontend CPU by pod",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+          "targets": [
+            {"expr": "sum(rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\",pod=~\"frontend-.*\",container=\"frontend\"}[5m])) by (pod)", "legendFormat": "{{pod}}", "refId": "A"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "cores"}, "overrides": []}
+        },
+        {
+          "id": 4,
+          "title": "Available frontend replicas",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+          "targets": [
+            {"expr": "kube_deployment_status_replicas_available{deployment=\"frontend\",namespace=~\"$namespace\"}", "legendFormat": "{{namespace}}", "refId": "A"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+        }
+      ]
+    }

@@ -33,6 +33,7 @@ RUN rm -f /etc/nginx/conf.d/default.conf /etc/nginx/nginx.conf \
         /tmp/uwsgi_temp /tmp/scgi_temp /usr/share/nginx/html /var/cache/nginx
 
 COPY nginx.conf /etc/nginx/nginx.conf
+RUN nginx -t
 COPY --from=build --chown=nginx:nginx /build/dist /usr/share/nginx/html
 COPY --chmod=0755 docker-entrypoint.sh /docker-entrypoint-aip.sh
 

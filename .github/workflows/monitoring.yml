@@ -1,0 +1,195 @@
+name: Monitoring (Prometheus + Grafana)
+
+on:
+  pull_request:
+    paths:
+      - "monitoring/**"
+      - "k8s/**"
+      - "nginx.conf"
+      - ".github/workflows/monitoring.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "monitoring/**"
+      - "k8s/**"
+      - "nginx.conf"
+      - ".github/workflows/monitoring.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: ap-south-2
+  EKS_CLUSTER_NAME: eks-cluster
+
+jobs:
+  validate:
+    name: Validate Kubernetes and Helm configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Render application and monitoring manifests
+        run: |
+          kubectl kustomize k8s/overlays/testing > /tmp/testing.yaml
+          kubectl kustomize k8s/overlays/prod > /tmp/prod.yaml
+          kubectl kustomize monitoring/app > /tmp/monitoring-app.yaml
+
+      - name: Validate autoscaling configuration
+        run: |
+          python3 -m pip install --quiet pyyaml
+          python3 - <<'PY'
+          import sys
+          import yaml
+
+          for environment in ("testing", "prod"):
+              with open(f"/tmp/{environment}.yaml", encoding="utf-8") as stream:
+                  documents = [item for item in yaml.safe_load_all(stream) if item]
+              deployment = next(item for item in documents if item["kind"] == "Deployment")
+              hpa = next(item for item in documents if item["kind"] == "HorizontalPodAutoscaler")
+              if "replicas" in deployment["spec"]:
+                  sys.exit(f"{environment}: Deployment must not set replicas; the HPA owns the scale.")
+              if hpa["spec"]["metrics"][0]["resource"]["target"]["averageUtilization"] != 70:
+                  sys.exit(f"{environment}: expected HPA CPU target of 70%.")
+              if environment == "prod":
+                  if hpa["spec"]["minReplicas"] < 2 or hpa["spec"]["maxReplicas"] != 6:
+                      sys.exit("prod: expected HPA range of 2 to 6 replicas.")
+                  if not any(item["kind"] == "PodDisruptionBudget" for item in documents):
+                      sys.exit("prod: PodDisruptionBudget is missing.")
+
+          print("HPA and PDB configuration is valid.")
+          PY
+
+      - name: Validate Grafana dashboard JSON
+        run: |
+          python3 - <<'PY'
+          import json
+          import yaml
+
+          with open("monitoring/app/grafana-dashboard.yaml", encoding="utf-8") as stream:
+              config_map = yaml.safe_load(stream)
+          for name, dashboard in config_map["data"].items():
+              json.loads(dashboard)
+              print(f"Valid dashboard: {name}")
+          PY
+
+      - name: Render kube-prometheus-stack chart
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo update
+          helm template monitoring prometheus-community/kube-prometheus-stack \
+            --namespace monitoring \
+            -f monitoring/kube-prometheus-stack-values.yaml > /dev/null
+
+  deploy:
+    name: Deploy monitoring stack
+    needs: validate
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment:
+      name: production
+    concurrency:
+      group: deploy-monitoring
+      cancel-in-progress: false
+    env:
+      GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+      KPS_CHART_VERSION: ${{ vars.KPS_CHART_VERSION }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Check Grafana password secret
+        run: |
+          if [ -z "$GRAFANA_ADMIN_PASSWORD" ]; then
+            echo "::error::Set the GRAFANA_ADMIN_PASSWORD GitHub secret before deploying monitoring."
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_PROD_ROLE_ARN || secrets.AWS_ROLE_ARN }}
+
+      - name: Configure EKS
+        run: |
+          aws eks update-kubeconfig \
+            --region "$AWS_REGION" \
+            --name "$EKS_CLUSTER_NAME"
+
+      - name: Install metrics-server if needed
+        run: |
+          if kubectl get apiservice v1beta1.metrics.k8s.io \
+            -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' | grep -qx True; then
+            echo "Kubernetes metrics API is available."
+          else
+            helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
+            helm repo update
+            helm upgrade --install metrics-server metrics-server/metrics-server \
+              --namespace kube-system --atomic --timeout 5m
+            kubectl wait --for=condition=True apiservice/v1beta1.metrics.k8s.io --timeout=180s
+          fi
+
+      - name: Ensure gp3 storage class
+        run: |
+          if ! kubectl get storageclass gp3 >/dev/null 2>&1; then
+            kubectl apply -f monitoring/storageclass-gp3.yaml
+          fi
+
+      - name: Create monitoring namespace and Grafana secret
+        run: |
+          kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+          kubectl -n monitoring create secret generic grafana-admin \
+            --from-literal=admin-user=admin \
+            --from-literal=admin-password="$GRAFANA_ADMIN_PASSWORD" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Install or upgrade kube-prometheus-stack
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo update
+          VERSION="${KPS_CHART_VERSION:-$(helm search repo prometheus-community/kube-prometheus-stack -o json | jq -r '.[0].version')}"
+          echo "Installing kube-prometheus-stack chart version $VERSION"
+          helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+            --namespace monitoring \
+            --version "$VERSION" \
+            -f monitoring/kube-prometheus-stack-values.yaml \
+            --atomic --timeout 15m
+
+      - name: Wait for monitoring workloads
+        run: |
+          kubectl -n monitoring rollout status deployment/monitoring-kube-prometheus-operator --timeout=300s
+          kubectl -n monitoring rollout status deployment/monitoring-grafana --timeout=300s
+          kubectl -n monitoring rollout status statefulset/prometheus-monitoring-kube-prometheus-prometheus --timeout=600s
+          kubectl -n monitoring rollout status statefulset/alertmanager-monitoring-kube-prometheus-alertmanager --timeout=300s
+
+      - name: Apply frontend scrape config, alerts, and dashboard
+        run: |
+          kubectl apply --dry-run=server -k monitoring/app
+          kubectl apply -k monitoring/app
+
+      - name: Show monitoring status
+        run: |
+          kubectl -n monitoring get pods,servicemonitor,prometheusrule
+          {
+            echo "### Monitoring deployed"
+            echo 'Grafana: `kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80`'
+            echo 'Prometheus: `kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090`'
+          } >> "$GITHUB_STEP_SUMMARY"
