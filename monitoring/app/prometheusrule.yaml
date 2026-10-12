@@ -1,0 +1,42 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: frontend-alerts
+  labels:
+    app: frontend
+spec:
+  groups:
+    - name: frontend.availability
+      rules:
+        - alert: FrontendMetricsDown
+          expr: up{job="frontend", namespace="prod"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: Frontend metrics target is down in prod
+            description: "Check the frontend pods and the nginx-exporter sidecar in namespace {{ $labels.namespace }}."
+        - alert: FrontendMetricsMissing
+          expr: absent(up{job="frontend", namespace="prod"})
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: Prometheus is not discovering frontend metrics in prod
+            description: Check the ServiceMonitor and frontend Service in namespace prod.
+        - alert: FrontendReplicasUnavailable
+          expr: kube_deployment_status_replicas_available{deployment="frontend", namespace="prod"} < kube_deployment_spec_replicas{deployment="frontend", namespace="prod"}
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: Frontend has fewer available replicas than desired
+            description: "Check the frontend Deployment and recent events in namespace {{ $labels.namespace }}."
+        - alert: FrontendHPAMaxedOut
+          expr: kube_horizontalpodautoscaler_status_current_replicas{horizontalpodautoscaler="frontend", namespace="prod"} >= kube_horizontalpodautoscaler_spec_max_replicas{horizontalpodautoscaler="frontend", namespace="prod"}
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: Frontend HPA has been at its maximum for 15 minutes
+            description: Increase maxReplicas or investigate sustained traffic in namespace {{ $labels.namespace }}.

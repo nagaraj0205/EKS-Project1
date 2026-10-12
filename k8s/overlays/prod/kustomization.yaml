@@ -23,15 +23,12 @@ patches:
         path: /data/APP_ENV
         value: "prod"
 
-  # Two replicas, and a rollout that never takes a pod away before its
-  # replacement is Ready, so a deploy causes no downtime.
+  # A rollout that never takes a pod away before its replacement is Ready.
+  # The HPA owns the replica count; keep prod spread across availability zones.
   - target:
       kind: Deployment
       name: frontend
     patch: |-
-      - op: replace
-        path: /spec/replicas
-        value: 2
       - op: add
         path: /spec/strategy
         value:
@@ -39,3 +36,23 @@ patches:
           rollingUpdate:
             maxUnavailable: 0
             maxSurge: 1
+      - op: add
+        path: /spec/template/spec/topologySpreadConstraints
+        value:
+          - maxSkew: 1
+            topologyKey: topology.kubernetes.io/zone
+            whenUnsatisfiable: ScheduleAnyway
+            labelSelector:
+              matchLabels:
+                app: frontend
+
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: frontend
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 2
+      - op: replace
+        path: /spec/maxReplicas
+        value: 6
