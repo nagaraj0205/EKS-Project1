@@ -1,0 +1,19 @@
+# gp3 EBS storage class for the Prometheus, Alertmanager and Grafana volumes.
+# Needs the aws-ebs-csi-driver EKS add-on. EKS clusters usually only ship the
+# old gp2 class, and gp2 is slower and costs more per GB than gp3.
+#
+# The workflow applies this only if a class named "gp3" does not exist yet.
+# StorageClass parameters cannot be edited later: to change them, create a new
+# class under a new name and point the values file at it.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp3
+  encrypted: "true"
+# Create the volume in the same AZ as the pod that first uses it.
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+reclaimPolicy: Delete

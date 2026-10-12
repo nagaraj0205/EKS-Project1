@@ -1,0 +1,63 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: prod
+
+resources:
+  - namespace.yaml
+  - ../../base
+  - pdb.yaml
+
+patches:
+  - path: ingress-patch.yaml
+    target:
+      kind: Ingress
+      name: frontend
+
+  # `prod` hides the seed-account shortcuts on the login screen.
+  - target:
+      kind: ConfigMap
+      name: frontend-config
+    patch: |-
+      - op: replace
+        path: /data/APP_ENV
+        value: "prod"
+
+  # A rollout that never takes a pod away before its replacement is Ready, so a
+  # deploy causes no downtime, and pods are spread across availability zones so
+  # losing one AZ does not take every replica with it. The replica count itself
+  # is owned by the HPA below (there is deliberately no /spec/replicas here).
+  - target:
+      kind: Deployment
+      name: frontend
+    patch: |-
+      - op: add
+        path: /spec/strategy
+        value:
+          type: RollingUpdate
+          rollingUpdate:
+            maxUnavailable: 0
+            maxSurge: 1
+      - op: add
+        path: /spec/template/spec/topologySpreadConstraints
+        value:
+          - maxSkew: 1
+            topologyKey: topology.kubernetes.io/zone
+            # Prefer spreading but never leave a pod Pending because of it.
+            whenUnsatisfiable: ScheduleAnyway
+            labelSelector:
+              matchLabels:
+                app: frontend
+
+  # Prod autoscaling range: always at least 2 pods (so the PDB can allow a node
+  # drain), up to 6 under load.
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: frontend
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 2
+      - op: replace
+        path: /spec/maxReplicas
+        value: 6

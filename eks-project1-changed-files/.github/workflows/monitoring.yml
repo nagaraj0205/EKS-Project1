@@ -1,0 +1,225 @@
+name: Monitoring (Prometheus + Grafana)
+
+# ==========================================================
+# Installs and updates the monitoring stack on the shared EKS cluster.
+# Separate from the app pipeline (ci.yml) on purpose: the app deploys on every
+# merge, the monitoring stack only changes when files under monitoring/ do.
+#
+#   pull request touching monitoring/ or k8s/  -> validate only (render + lint)
+#   push to main touching monitoring/          -> validate -> production approval -> deploy
+#   manual run (from main)                     -> validate -> production approval -> deploy
+#
+# One-time prerequisites (see monitoring/README.md):
+#   - EBS CSI driver add-on on the cluster (for the gp3 volumes)
+#   - GitHub secret GRAFANA_ADMIN_PASSWORD
+#   - GitHub secret ALERTMANAGER_SLACK_WEBHOOK (optional; alerts are not delivered without it)
+#   - The pipeline IAM role's EKS access entry needs cluster-admin for this job: the Helm
+#     chart installs CRDs, ClusterRoles and cluster-wide objects, which a namespace-scoped
+#     app-deploy role cannot create. Prefer a separate role in AWS_PROD_ROLE_ARN for this.
+# ==========================================================
+on:
+  pull_request:
+    paths:
+      - 'monitoring/**'
+      - 'k8s/**'
+      - '.github/workflows/monitoring.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'monitoring/**'
+      - '.github/workflows/monitoring.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: ap-south-2
+  EKS_CLUSTER_NAME: eks-cluster
+
+jobs:
+# ==========================================================
+# 1. VALIDATE (no cluster access needed)
+# ==========================================================
+  validate:
+    name: Validate manifests and Helm values
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Render kustomize overlays
+        run: |
+          kubectl kustomize k8s/overlays/testing > /tmp/testing.yaml
+          kubectl kustomize k8s/overlays/prod    > /tmp/prod.yaml
+          kubectl kustomize monitoring/app       > /tmp/monitoring-app.yaml
+
+      # The HPA owns the replica count. A hardcoded Deployment replicas field would be
+      # reset on every apply and fight the autoscaler.
+      - name: Check autoscaling invariants
+        run: |
+          python3 -c "import yaml" 2>/dev/null || pip install --quiet --break-system-packages pyyaml
+          python3 - <<'EOF'
+          import sys, yaml
+          failed = False
+          for env in ("testing", "prod"):
+              docs = [d for d in yaml.safe_load_all(open(f"/tmp/{env}.yaml")) if d]
+              kinds = {d["kind"] for d in docs}
+              dep = next(d for d in docs if d["kind"] == "Deployment")
+              if "replicas" in dep["spec"]:
+                  print(f"::error::{env}: Deployment sets spec.replicas; remove it so the HPA owns scaling")
+                  failed = True
+              if "HorizontalPodAutoscaler" not in kinds:
+                  print(f"::error::{env}: no HorizontalPodAutoscaler rendered")
+                  failed = True
+              if env == "prod":
+                  hpa = next(d for d in docs if d["kind"] == "HorizontalPodAutoscaler")
+                  if hpa["spec"]["minReplicas"] < 2:
+                      print("::error::prod HPA minReplicas must be at least 2")
+                      failed = True
+                  if "PodDisruptionBudget" not in kinds:
+                      print("::error::prod has no PodDisruptionBudget")
+                      failed = True
+          sys.exit(1 if failed else 0)
+          EOF
+
+      - name: Validate Grafana dashboard JSON
+        run: |
+          python3 - <<'EOF'
+          import json, yaml
+          cm = yaml.safe_load(open("monitoring/app/grafana-dashboard.yaml"))
+          for name, body in cm["data"].items():
+              json.loads(body)
+              print("dashboard JSON ok:", name)
+          EOF
+
+      - name: Render the Helm chart with our values
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo update
+          helm template monitoring prometheus-community/kube-prometheus-stack \
+            --namespace monitoring \
+            -f monitoring/kube-prometheus-stack-values.yaml > /dev/null
+          echo "Helm values render cleanly"
+
+# ==========================================================
+# 2. DEPLOY (main only, behind the production environment approval)
+# ==========================================================
+  deploy:
+    name: Deploy monitoring stack
+    needs: validate
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment:
+      name: production
+    concurrency:
+      group: deploy-monitoring
+      cancel-in-progress: false
+    env:
+      GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+      ALERTMANAGER_SLACK_WEBHOOK: ${{ secrets.ALERTMANAGER_SLACK_WEBHOOK }}
+      # Optional repository variable. Leave unset to install the latest chart and
+      # print the version, then set it to that value to pin it.
+      KPS_CHART_VERSION: ${{ vars.KPS_CHART_VERSION }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Check required secrets
+        run: |
+          if [ -z "$GRAFANA_ADMIN_PASSWORD" ]; then
+            echo "::error::GitHub secret GRAFANA_ADMIN_PASSWORD is not set."
+            exit 1
+          fi
+          if [ -z "$ALERTMANAGER_SLACK_WEBHOOK" ]; then
+            echo "::warning::ALERTMANAGER_SLACK_WEBHOOK is not set. Alerts will fire in Prometheus but will not be delivered to Slack."
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_PROD_ROLE_ARN || secrets.AWS_ROLE_ARN }}
+
+      - name: Configure EKS
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ env.AWS_REGION }} \
+            --name ${{ env.EKS_CLUSTER_NAME }}
+
+      # HPAs read CPU from the metrics API. Install metrics-server only if the cluster
+      # does not already provide it (for example as the EKS add-on).
+      - name: Ensure metrics-server (needed by the HPA)
+        run: |
+          if kubectl get apiservice v1beta1.metrics.k8s.io >/dev/null 2>&1; then
+            echo "metrics API already present"
+          else
+            helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
+            helm repo update
+            helm upgrade --install metrics-server metrics-server/metrics-server \
+              --namespace kube-system --atomic --timeout 5m
+          fi
+
+      - name: Ensure the gp3 storage class
+        run: |
+          if kubectl get storageclass gp3 >/dev/null 2>&1; then
+            echo "storage class gp3 already exists"
+          else
+            kubectl apply -f monitoring/storageclass-gp3.yaml
+          fi
+
+      - name: Create namespace and secrets
+        run: |
+          kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+
+          kubectl -n monitoring create secret generic grafana-admin \
+            --from-literal=admin-user=admin \
+            --from-literal=admin-password="$GRAFANA_ADMIN_PASSWORD" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          # Alertmanager mounts this secret, so it must exist even without a webhook,
+          # otherwise the pod cannot start. The placeholder never delivers anything.
+          kubectl -n monitoring create secret generic alertmanager-slack \
+            --from-literal=url="${ALERTMANAGER_SLACK_WEBHOOK:-https://invalid.example/slack-not-configured}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Install or upgrade kube-prometheus-stack
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo update
+          VERSION="${KPS_CHART_VERSION:-$(helm search repo prometheus-community/kube-prometheus-stack -o json | jq -r '.[0].version')}"
+          echo "kube-prometheus-stack chart version: $VERSION"
+          echo "kube-prometheus-stack chart version: \`$VERSION\` (set the KPS_CHART_VERSION repository variable to pin it)" >> "$GITHUB_STEP_SUMMARY"
+          helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+            --namespace monitoring \
+            --version "$VERSION" \
+            -f monitoring/kube-prometheus-stack-values.yaml \
+            --atomic --timeout 15m
+
+      - name: Wait for the stack
+        run: |
+          kubectl -n monitoring rollout status deployment/monitoring-kube-prometheus-operator --timeout=300s
+          kubectl -n monitoring rollout status deployment/monitoring-grafana --timeout=300s
+          kubectl -n monitoring rollout status statefulset/prometheus-monitoring-kube-prometheus-prometheus --timeout=600s
+          kubectl -n monitoring rollout status statefulset/alertmanager-monitoring-kube-prometheus-alertmanager --timeout=300s
+
+      # Needs the operator CRDs installed above, which is why this runs after Helm.
+      - name: Apply app scrape config, alerts and dashboard
+        run: |
+          kubectl apply --dry-run=server -k monitoring/app
+          kubectl apply -k monitoring/app
+
+      - name: Summary
+        run: |
+          kubectl -n monitoring get pods
+          kubectl -n monitoring get servicemonitor,prometheusrule
+          {
+            echo "### Monitoring deployed"
+            echo "Grafana: \`kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80\` then http://localhost:3000 (user: admin)"
+            echo "Prometheus: \`kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090\`"
+            echo "Alertmanager: \`kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-alertmanager 9093\`"
+          } >> "$GITHUB_STEP_SUMMARY"

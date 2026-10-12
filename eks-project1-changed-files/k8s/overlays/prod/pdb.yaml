@@ -1,0 +1,18 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend
+  labels:
+    app: frontend
+spec:
+  # maxUnavailable, not minAvailable: the HPA moves the replica count between 2
+  # and 6, and a fixed `minAvailable: 1` would let a node drain evict 5 of 6 pods
+  # at once. This evicts at most one pod at a time at any size (with 2 replicas it
+  # is the same as minAvailable: 1).
+  #
+  # Applies to voluntary disruptions only (node drain, cluster upgrade, Karpenter
+  # or Cluster Autoscaler scale-down). It does not stop a crash or node failure.
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: frontend
