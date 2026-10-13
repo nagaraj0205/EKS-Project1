@@ -10,6 +10,8 @@ on:
   push:
     branches:
       - main
+      - feature/**
+      - testing
     paths:
       - "monitoring/**"
       - "k8s/**"
@@ -152,6 +154,17 @@ jobs:
           if ! kubectl get storageclass gp3 >/dev/null 2>&1; then
             kubectl apply -f monitoring/storageclass-gp3.yaml
           fi
+
+      - name: Verify EBS CSI driver
+        run: |
+          if ! kubectl get csidriver ebs.csi.aws.com >/dev/null 2>&1; then
+            echo "::error::The EBS CSI driver is missing. Apply the Terraform EKS add-on before deploying monitoring."
+            exit 1
+          fi
+          kubectl rollout status deployment/ebs-csi-controller \
+            --namespace kube-system --timeout=300s
+          kubectl rollout status daemonset/ebs-csi-node \
+            --namespace kube-system --timeout=300s
 
       - name: Create monitoring namespace and Grafana secret
         run: |

@@ -1,0 +1,9 @@
+[33mcommit 56efb19877a1a9db8fec0dc971ac5f40e6540a75[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mfeature/login[m[33m, [m[1;31morigin/feature/login[m[33m)[m
+Author: nagaraj0205 <nagarajan.02s5@gmail.com>
+Date:   Tue Oct 13 12:31:42 2026 +0530
+
+    testing
+
+ Dockerfile | 4 [32m++[m[31m--[m
+ nginx.conf | 4 [32m++[m[31m--[m
+ 2 files changed, 4 insertions(+), 4 deletions(-)
