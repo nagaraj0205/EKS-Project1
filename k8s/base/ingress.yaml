@@ -8,9 +8,8 @@ metadata:
     # internet-facing = a public ALB. Use `internal` for a private one.
     alb.ingress.kubernetes.io/scheme: internet-facing
 
-    # ip, not instance: pods hold real VPC addresses, so the ALB reaches a
-    # pod directly instead of hopping through a NodePort on the node.
-    alb.ingress.kubernetes.io/target-type: ip
+    # Instance targets route through each node's NodePort to the selected pods.
+    alb.ingress.kubernetes.io/target-type: instance
 
     # The path the ALB polls to decide a pod is healthy. nginx answers it
     # without touching the filesystem.
