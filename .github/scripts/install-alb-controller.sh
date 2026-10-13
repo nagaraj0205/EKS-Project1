@@ -28,17 +28,37 @@ VPC_ID="$(aws eks describe-cluster \
 
 helm repo add eks https://aws.github.io/eks-charts --force-update
 helm repo update
-helm upgrade --install aws-load-balancer-controller \
-  eks/aws-load-balancer-controller \
-  --version "${ALB_CONTROLLER_CHART_VERSION}" \
-  --namespace kube-system \
-  --set "clusterName=${EKS_CLUSTER_NAME}" \
-  --set "region=${AWS_REGION}" \
-  --set "vpcId=${VPC_ID}" \
-  --set serviceAccount.create=false \
-  --set serviceAccount.name=aws-load-balancer-controller \
-  --wait \
+
+HELM_ARGS=(
+  aws-load-balancer-controller
+  eks/aws-load-balancer-controller
+  --version "${ALB_CONTROLLER_CHART_VERSION}"
+  --namespace kube-system
+  --set "clusterName=${EKS_CLUSTER_NAME}"
+  --set "region=${AWS_REGION}"
+  --set "vpcId=${VPC_ID}"
+  --set serviceAccount.create=false
+  --set serviceAccount.name=aws-load-balancer-controller
+  --set keepTLSSecret=true
+  --wait
   --timeout 5m
+)
+
+helm upgrade --install "${HELM_ARGS[@]}"
+
+TLS_CERT="$(kubectl get secret aws-load-balancer-tls \
+  --namespace kube-system \
+  --output jsonpath='{.data.tls\.crt}')"
+
+if [[ -z "${TLS_CERT}" ]]; then
+  echo "::error::The AWS Load Balancer Controller webhook TLS certificate is missing."
+  exit 1
+fi
+TLS_CERT_HASH="$(printf '%s' "${TLS_CERT}" | sha256sum | awk '{print $1}')"
+
+# Keep the checksum in Helm's pod template so new certificates trigger a rollout.
+helm upgrade --install "${HELM_ARGS[@]}" \
+  --set-string "podAnnotations.webhook-cert-sha256=${TLS_CERT_HASH}"
 
 kubectl rollout status deployment/aws-load-balancer-controller \
   --namespace kube-system \
