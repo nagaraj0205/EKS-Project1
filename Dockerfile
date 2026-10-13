@@ -28,8 +28,8 @@ FROM nginx:1.31.2-alpine AS runtime
 # Every directory nginx writes to must be owned by the unprivileged user, and
 # the default config is removed so only ours is served.
 RUN rm -f /etc/nginx/conf.d/default.conf /etc/nginx/nginx.conf \
-    && mkdir -p /tmp/client_temp /tmp/proxy_temp /tmp/fastcgi_temp /tmp/uwsgi_temp /tmp/scgi_temp \
-    && chown -R nginx:nginx /tmp/client_temp /tmp/proxy_temp /tmp/fastcgi_temp \
+    && mkdir -p /tmp/nginx /tmp/client_temp /tmp/proxy_temp /tmp/fastcgi_temp /tmp/uwsgi_temp /tmp/scgi_temp \
+    && chown -R nginx:nginx /tmp/nginx /tmp/client_temp /tmp/proxy_temp /tmp/fastcgi_temp \
         /tmp/uwsgi_temp /tmp/scgi_temp /usr/share/nginx/html /var/cache/nginx
 
 COPY nginx.conf /etc/nginx/nginx.conf
