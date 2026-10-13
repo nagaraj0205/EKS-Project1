@@ -10,3 +10,14 @@ coverage/
 
 .DS_Store
 *.log
+@"
+
+# Terraform local files
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfplan
+.terraform.lock.hcl
+"@ | Add-Content .gitignore

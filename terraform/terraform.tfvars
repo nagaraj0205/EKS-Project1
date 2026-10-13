@@ -1,0 +1,10 @@
+aws_region         = "ap-south-2"
+project_name       = "eks-cluster"
+environment        = "dev"
+cluster_name       = "eks-cluster"
+kubernetes_version = "1.32"
+vpc_cidr           = "10.20.0.0/16"
+instance_types     = ["t3.medium"]
+desired_size       = 2
+min_size           = 2
+max_size           = 4
