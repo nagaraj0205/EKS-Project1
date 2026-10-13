@@ -472,8 +472,9 @@
   <div class="note why">
     <span class="note-label">Read this first</span>
     <p>
-      Steps 1&ndash;5 are done <strong>once per cluster</strong>. Step 6 is done once per application.
-      Nothing here is repeated on every deploy.
+      Steps 1&ndash;4 are done <strong>once per cluster</strong>. Step 5 is an idempotent Helm upgrade run
+      by this repository's CI/CD workflow before each testing or production deployment. Step 6 is done once
+      per application.
     </p>
     <p>
       The order matters more than usual. Doing step 5 before step 2 gives you a controller that starts
@@ -818,9 +819,17 @@ aws iam create-policy \
       <h2>Install the controller</h2>
       <p class="step-kicker">The pod that watches for Ingress objects</p>
 
+      <p>
+        This repository installs or upgrades the pinned controller chart from the GitHub Actions
+        <code>install-alb-controller</code> job before deploying either application environment. The
+        workflow uses the existing IRSA role and annotated ServiceAccount; prepare those once using steps
+        1&ndash;4, and grant the AWS deployment role access to the EKS cluster.
+      </p>
+
       <div class="term">
         <div class="term-bar"><span>terminal</span><span>helm</span></div>
 <pre>helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
+  --version 3.5.0 \
   -n kube-system \
   --set clusterName="$CLUSTER" \
   --set region="$REGION" \
@@ -909,6 +918,12 @@ kubectl get ingressclass</pre>
         <code>my-app</code> with your Service name and <code>80</code> with its port.
       </p>
 
+      <p>
+        This repository uses instance targets, so its backend Service is <code>NodePort</code>. The
+        controller registers the worker nodes and routes traffic through the Service's NodePort to ready
+        pods.
+      </p>
+
       <div class="term">
         <div class="term-bar"><span>ingress.yaml</span><span>kubernetes</span></div>
 <pre>apiVersion: networking.k8s.io/v1
@@ -920,9 +935,8 @@ metadata:
     # which is what the internal-elb subnet tag is for.</span>
     alb.ingress.kubernetes.io/scheme: internet-facing
 
-    <span class="c"># ip, not instance: pods hold real VPC addresses, so the ALB reaches a
-    # pod directly instead of hopping through a NodePort on the host.</span>
-    alb.ingress.kubernetes.io/target-type: ip
+    <span class="c"># Instance targets forward to the NodePort on each worker node.</span>
+    alb.ingress.kubernetes.io/target-type: instance
 
     <span class="c"># The path the ALB polls to decide a pod is healthy. Point it at a
     # cheap endpoint, not at your homepage.</span>

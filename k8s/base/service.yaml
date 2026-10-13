@@ -5,6 +5,8 @@ metadata:
   labels:
     app: frontend
 spec:
+  # ALB instance targets forward traffic through a NodePort on each worker.
+  type: NodePort
   selector:
     app: frontend
   ports:

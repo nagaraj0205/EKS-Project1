@@ -37,6 +37,7 @@ env:
   AWS_REGION: ap-south-2
   EKS_CLUSTER_NAME: eks-cluster
   ECR_REPOSITORY: prod-eks-frontend
+  ALB_CONTROLLER_CHART_VERSION: 3.5.0
 
 jobs:
 # ==========================================================
@@ -202,11 +203,47 @@ jobs:
         run: docker push "${{ steps.meta.outputs.image }}"
 
 # ==========================================================
+# Install/upgrade the shared cluster controller before either
+# application environment is deployed.
+# ==========================================================
+  install-alb-controller:
+    name: Install AWS Load Balancer Controller
+    needs: ci
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/testing' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    concurrency:
+      group: install-alb-controller-eks-cluster
+      cancel-in-progress: false
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+
+      - name: Configure EKS
+        run: |
+          aws eks update-kubeconfig \
+            --region "${AWS_REGION}" \
+            --name "${EKS_CLUSTER_NAME}"
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.22.0
+
+      - name: Install or upgrade AWS Load Balancer Controller
+        run: bash .github/scripts/install-alb-controller.sh
+
+# ==========================================================
 # 4. TESTING DEPLOYMENT (merge to testing)
 # ==========================================================
   deploy-testing:
     name: Deploy to Testing
-    needs: docker
+    needs: [docker, install-alb-controller]
     if: github.event_name == 'push' && github.ref == 'refs/heads/testing'
     runs-on: ubuntu-latest
   
@@ -285,7 +322,6 @@ jobs:
           test "$RUNNING" = "${{ needs.docker.outputs.image }}"
           kubectl get pods -n testing -l app=frontend
 
-      # The Service is ClusterIP, so the runner cannot reach it directly.
       # port-forward gives a real HTTP check that fails the job on any error.
       - name: Smoke tests
         run: |
@@ -354,7 +390,7 @@ jobs:
 # ==========================================================
   deploy-production:
     name: Deploy to Production
-    needs: ci
+    needs: [ci, install-alb-controller]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     # Required reviewers on the "production" environment = the deploy approval gate.
