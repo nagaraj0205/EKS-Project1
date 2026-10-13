@@ -8,9 +8,13 @@ loads the frontend dashboard from a ConfigMap.
 ## Prerequisites
 
 - An EKS cluster named `eks-cluster` in `ap-south-2`.
-- The AWS EBS CSI driver add-on, with permission to provision encrypted EBS
-  volumes. The workflow creates a `gp3` StorageClass for the stack's persistent
-  data.
+- The AWS EBS CSI driver add-on. Terraform provisions it with an IRSA role
+  trusted by this cluster's OIDC provider and the `AmazonEBSCSIDriverPolicy`.
+  Apply Terraform before running the monitoring workflow; the workflow checks
+  that the CSI controller and node plugin are ready before installing charts.
+  It creates a `gp3` StorageClass for the stack's persistent data. The EKS
+  add-on itself has no separate charge, but provisioned EBS volumes incur
+  normal storage and I/O charges.
 - GitHub Actions OIDC access to EKS. The role needs cluster-wide permissions to
   install Helm chart CRDs and cluster-scoped resources. Set the repository
   secret `AWS_PROD_ROLE_ARN` to a suitably privileged role; if unset, the

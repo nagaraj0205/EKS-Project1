@@ -12,6 +12,11 @@ spec:
       labels:
         app: frontend
     spec:
+      securityContext:
+        fsGroup: 101
+      volumes:
+        - name: nginx-runtime
+          emptyDir: {}
       containers:
         - name: frontend
           # Replaced at deploy time, per environment:
@@ -22,6 +27,10 @@ spec:
           # after the sed, so a literal IMAGE_PLACEHOLDER (ImagePullBackOff)
           # can never reach the cluster.
           image: IMAGE_PLACEHOLDER
+
+          volumeMounts:
+            - name: nginx-runtime
+              mountPath: /tmp/nginx
 
           ports:
             # Named, so the Service and both probes refer to it by name.
