@@ -64,6 +64,21 @@ module "eks" {
 
   # Grants the creating IAM principal cluster-admin access through EKS access entries.
   enable_cluster_creator_admin_permissions = true
+
+  access_entries = try(trimspace(var.github_actions_role_arn), "") == "" ? {} : {
+    github_actions = {
+      principal_arn = var.github_actions_role_arn
+
+      policy_associations = {
+        cluster_admin = {
+          policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+          access_scope = {
+            type = "cluster"
+          }
+        }
+      }
+    }
+  }
 }
 
 resource "aws_iam_role" "ebs_csi_driver" {

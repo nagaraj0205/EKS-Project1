@@ -22,6 +22,13 @@ variable "cluster_name" {
   default     = "eks-cluster"
 }
 
+variable "github_actions_role_arn" {
+  description = "IAM role ARN used by GitHub Actions to access the EKS Kubernetes API."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
 variable "kubernetes_version" {
   description = "EKS Kubernetes version supported in the selected AWS region."
   type        = string

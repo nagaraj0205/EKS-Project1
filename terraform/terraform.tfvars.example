@@ -2,6 +2,8 @@ aws_region         = "ap-south-2"
 project_name       = "eks-observability"
 environment        = "dev"
 cluster_name       = "eks-observability"
+# Set to the IAM role ARN configured in the GitHub Actions AWS_ROLE_ARN secret.
+# github_actions_role_arn = "arn:aws:iam::<ACCOUNT_ID>:role/<GITHUB_ACTIONS_ROLE_NAME>"
 kubernetes_version = "1.32"
 vpc_cidr           = "10.20.0.0/16"
 instance_types     = ["t3.medium"]

@@ -4,21 +4,23 @@ set -euo pipefail
 : "${AWS_REGION:?AWS_REGION must be set}"
 : "${EKS_CLUSTER_NAME:?EKS_CLUSTER_NAME must be set}"
 : "${ALB_CONTROLLER_CHART_VERSION:?ALB_CONTROLLER_CHART_VERSION must be set}"
+: "${ALB_CONTROLLER_ROLE_ARN:?Set the ALB_CONTROLLER_ROLE_ARN GitHub secret to the controller IRSA role ARN}"
 
 ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
-ROLE_ARN="$(kubectl get serviceaccount aws-load-balancer-controller \
+
+if [[ "${ALB_CONTROLLER_ROLE_ARN}" != "arn:aws:iam::${ACCOUNT_ID}:role/"* ]]; then
+  echo "::error::The controller IRSA role must belong to the AWS account used by this workflow."
+  exit 1
+fi
+
+kubectl create serviceaccount aws-load-balancer-controller \
   --namespace kube-system \
-  --output jsonpath='{.metadata.annotations.eks\.amazonaws\.com/role-arn}')"
-
-if [[ -z "${ROLE_ARN}" ]]; then
-  echo "::error::The controller ServiceAccount has no IRSA role annotation. Configure the cluster OIDC provider, IAM policy and role, and annotated ServiceAccount before deploying."
-  exit 1
-fi
-
-if [[ "${ROLE_ARN}" != "arn:aws:iam::${ACCOUNT_ID}:role/"* ]]; then
-  echo "::error::The controller ServiceAccount role must belong to the AWS account used by this workflow."
-  exit 1
-fi
+  --dry-run=client \
+  --output yaml | kubectl apply -f -
+kubectl annotate serviceaccount aws-load-balancer-controller \
+  --namespace kube-system \
+  "eks.amazonaws.com/role-arn=${ALB_CONTROLLER_ROLE_ARN}" \
+  --overwrite
 
 VPC_ID="$(aws eks describe-cluster \
   --name "${EKS_CLUSTER_NAME}" \
