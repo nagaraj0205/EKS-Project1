@@ -236,6 +236,8 @@ jobs:
           version: v3.22.0
 
       - name: Install or upgrade AWS Load Balancer Controller
+        env:
+          ALB_CONTROLLER_ROLE_ARN: ${{ secrets.ALB_CONTROLLER_ROLE_ARN }}
         run: bash .github/scripts/install-alb-controller.sh
 
 # ==========================================================

@@ -22,10 +22,17 @@ variable "cluster_name" {
   default     = "eks-cluster"
 }
 
+variable "github_actions_role_arn" {
+  description = "IAM role ARN used by GitHub Actions to access the EKS Kubernetes API."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
 variable "kubernetes_version" {
   description = "EKS Kubernetes version supported in the selected AWS region."
   type        = string
-  default     = "1.32"
+  default     = "1.35"
 }
 
 variable "vpc_cidr" {
@@ -37,7 +44,7 @@ variable "vpc_cidr" {
 variable "instance_types" {
   description = "EC2 instance types for the managed node group."
   type        = list(string)
-  default     = ["t3.nano"]
+  default     = ["t3.medium"]
 }
 
 variable "desired_size" {
