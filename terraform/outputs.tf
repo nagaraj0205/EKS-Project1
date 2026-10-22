@@ -29,6 +29,11 @@ output "ecr_repository_arn" {
   value       = module.ecr.repository_arn
 }
 
+output "aws_load_balancer_controller_role_arn" {
+  description = "IRSA role ARN for the AWS Load Balancer Controller ServiceAccount."
+  value       = aws_iam_role.aws_load_balancer_controller.arn
+}
+
 output "configure_kubectl" {
   description = "Command to configure kubectl."
   value       = "aws eks update-kubeconfig --region ${var.aws_region} --name ${module.eks.cluster_name}"
