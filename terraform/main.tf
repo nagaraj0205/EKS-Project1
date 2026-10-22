@@ -107,6 +107,38 @@ resource "aws_iam_role_policy_attachment" "ebs_csi_driver" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
 }
 
+resource "aws_iam_policy" "aws_load_balancer_controller" {
+  name        = "${substr(var.cluster_name, 0, 49)}-alb-controller"
+  description = "Permissions for the AWS Load Balancer Controller to manage ALBs for ${var.cluster_name}."
+  policy      = file("${path.module}/aws-load-balancer-controller-iam-policy.json")
+}
+
+resource "aws_iam_role" "aws_load_balancer_controller" {
+  name = "${substr(var.cluster_name, 0, 49)}-alb-controller"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Federated = module.eks.oidc_provider_arn
+      }
+      Action = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = {
+          "${module.eks.oidc_provider}:aud" = "sts.amazonaws.com"
+          "${module.eks.oidc_provider}:sub" = "system:serviceaccount:kube-system:aws-load-balancer-controller"
+        }
+      }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "aws_load_balancer_controller" {
+  role       = aws_iam_role.aws_load_balancer_controller.name
+  policy_arn = aws_iam_policy.aws_load_balancer_controller.arn
+}
+
 resource "aws_eks_addon" "ebs_csi_driver" {
   cluster_name             = module.eks.cluster_name
   addon_name               = "aws-ebs-csi-driver"
@@ -115,7 +147,10 @@ resource "aws_eks_addon" "ebs_csi_driver" {
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "PRESERVE"
 
-  depends_on = [aws_iam_role_policy_attachment.ebs_csi_driver]
+  depends_on = [
+    module.eks,
+    aws_iam_role_policy_attachment.ebs_csi_driver,
+  ]
 }
 
 module "ecr" {
